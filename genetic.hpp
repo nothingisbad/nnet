@@ -13,6 +13,8 @@
 #include <algorithm>
 #include <iostream>
 
+#include "./NNet.hpp"
+
 template<class NetType, size_t num_networks>
 class Evolve {
 public:
@@ -26,6 +28,8 @@ private:
   WeightType _weights
     , _weight_sums;
 
+  constexpr static float _bump_size = 1.0 / (float)num_networks;
+
   void re_compute_weights() {
     _weight_sums[0] = _weights[0];
 
@@ -38,6 +42,7 @@ private:
       _weight_sums[i] *= normal;
   }
   
+  /* index of the lowest weight */
   size_t min_weight_index() {
     size_t min = 0;
     float min_val = 1;
@@ -49,6 +54,13 @@ private:
     }
 
     return min;
+  }
+
+  float average_weight() {
+    float result = 0.0;
+    for(size_t i = 0; i < num_networks; ++i)
+      result += _weights[i];
+    return result / num_networks;
   }
 
   /* index of networks which are currently being evaluated */
@@ -64,8 +76,31 @@ public:
     re_compute_weights();
   }
 
+  void bump_up(size_t i) {
+    _weights[i] += _bump_size;
+    re_compute_weights();
+  }
+
+  void bump_down(size_t i) {
+    _weights[i] -= _bump_size;
+    re_compute_weights();
+  }
+
+  /* mutate the lowest weighted neural net */
+  void mutate() {
+    size_t idx = min_weight_index();
+    _weights[idx] = average_weight();
+    at(idx).permute(-2, 2);
+
+    re_compute_weights();
+  }
+
+  const NetType& at(size_t i) const { return _networks[i]; }
+
+  NetType& at(size_t i) { return _networks[i]; }
+
   /* picks an index by taking a weighted random sample */
-  int sample() {
+  size_t sample() {
     /* binary search */
     float key =  std::generate_canonical<float,10>(_gen);
     //cout << "Value: "
@@ -96,7 +131,14 @@ public:
   /* | |__| (_) | | | \__ \ |_| |  | |_| | (__| || (_) | |  \__ \ */
   /*  \____\___/|_| |_|___/\__|_|   \__,_|\___|\__\___/|_|  |___/ */
   /****************************************************************/
-  Evolve() :  _gen( _rd() ) {}
+  Evolve() :  _gen( _rd() ) {
+    for(size_t i = 0; i < _weights.size(); ++i) {
+      _weights[i] = _bump_size;
+      _networks[i].random_init(-1,1);
+    }
+
+    re_compute_weights();
+  }
 
   /******************************************/
   /*  ____       _       _   _              */

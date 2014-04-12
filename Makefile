@@ -1,6 +1,10 @@
 CXX ?= g++
-#CXX = clang 
+#CXX = clang -lc++ 
 FLAGS := $(FLAGS) -Wall -ggdb -std=c++11 
 
-test_NNet: *.hpp *.cpp
-	$(CXX) $(FLAGS) -o test_NNet test_NNet.cpp
+%: %.cpp *.hpp
+	$(CXX) $(FLAGS) -o $@ $@.cpp 
+
+TARGETS=test_NNet
+clean:
+	@for item in $(TARGETS); do { if [ -e $${item} ]; then rm $${item} ; echo -n "cleaning up "; echo $${item} ; fi }; done
