@@ -5,13 +5,13 @@
  */
 
 #include "NNet.hpp"
-#include "./gradient_decent.hpp"
 
 #include <iostream>
 
 
 int main() {
   using namespace std;
+  using namespace recurrence_detail;
 
   typedef NNet< array<float,2>
   		, array<float,4>
@@ -20,16 +20,54 @@ int main() {
     NetType;
 
   NetType net;
+  typedef typename NetType::Feed Feed;
+  Feed feed;
+
+  feed.layer = array<float,2>{{1,1}};
 
   int row = 0,
     i = 0;
-  fold([&](float) {
-      ++i; }
-    , [&]() { cout << "Row " << row <<" has " << i << " elements " << endl; }
+  fold([&](float) { ++i; }
+    , [&]() { cout << "Row " << row <<" has " << i << " elements " << endl;
+      ++row;
+      i = 0;
+    }
     , net);
 
-  print_theta(net, cout) << "\n\n";
+  print_network(net, cout) << "\n\n";
+
+  permute(net, -0.12, 0.12);
+
+  print_network(net, cout) << "\n\n";
+
+  predict(net, feed);
+
+  cout << " (Forward fed: ";
+  FoldLayers<MapFeedLayers, Feed
+	     >::map( [&](float f) {
+		 cout << f << " ";
+	       } , [&]() {
+		 cout << endl;
+	       } , feed);
+
+  cout << ")" << endl;
+
+  i = 0;
+  back_propigate( [&](float theta, float err, float &dst) {
+      dst = i++;
+    }, net, feed);
+
+  cout << " (back propigated: ";
+  FoldLayers<MapFeedLayers, Feed
+	     >::map( [&](float f) {
+		 cout << f << " ";
+	       } , [&]() {
+		 cout << "\n  ";
+	       } , feed);
+  cout << ")" << endl;
+
 
 
   return 0;
 }
+o

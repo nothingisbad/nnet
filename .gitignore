@@ -1,5 +1,7 @@
 test_NNet
 madelon
-data1.txt
-data2.txt
+*.txt
 make_dist
+test_1d
+test_simple
+test_GD

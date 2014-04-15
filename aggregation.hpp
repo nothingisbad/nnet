@@ -5,30 +5,49 @@
  * @author Ryan Domigan <ryan_domigan@sutdents@uml.edu>
  * Created on Apr 10, 2014
  *
- * Aggregation for NNet and std::array
+ * Aggregation for NNet and std::array.
+ * I haven't come up with a good way to check the input types for dimention matches.  The compiler will still throw a fit
+ * in some cases, but it would be nice to have some static_asserts.
  */
 #include <array>
 #include <tuple>
+#include <algorithm>
+#include <iostream>
 
-template<class FN, class T, size_t n>
-void ref_map(const FN fn
-	     , std::array<T,n> &dst
-	     , const std::array<T,n> &aux) {
-  typedef std::array<T,n> Array;
-  for(size_t i = 0; i < std::tuple_size< Array >::value; ++i) {
-    dst[i] = fn(dst[i], aux[i]);
-  }
+template<class FN, class T, class ... Aux>
+void ref_map(FN fn , T& dst, Aux& ... aux) {
+  for(size_t i = 0; i < std::min( {std::tuple_size< T >::value
+	                          , std::tuple_size<Aux>::value ...} )
+	; ++i)
+    fn(dst[i], aux[i]...);
 }
 
-template<class FN, class T, size_t n>
-void fold(const FN fn
-	  , const std::array<T,n> &src) {
-  typedef std::array<T,n> Array;
-  for(size_t i = 0; i < std::tuple_size< Array >::value; ++i)
+template<class FN, class T, class ... Aux>
+void ref_map_tail(FN fn , T& dst, Aux& ... aux) {
+  for(size_t i = 1; i < std::min( {std::tuple_size< T >::value
+	                          , std::tuple_size<Aux>::value ...} )
+	; ++i)
+    fn(dst[i], aux[i]...);
+}
+
+template<class FN, class T>
+void array_fold(FN fn, T src) {
+  for(size_t i = 0; i < std::tuple_size< T >::value; ++i)
     fn(src[i]);
 }
 
+template<class A>
+std::ostream& print_array(const A& aa, std::ostream& out) {
+  using namespace std;
+  if(aa.size() == 0)
+    return cout << "[]";
 
+  cout << "[" << aa[0];
+  ref_map_tail([&](float ff) { out << ", " << ff; }, aa);
+  return cout << "]";
+}
 
+template<class A>
+std::ostream& print_array(const A& aa) { return print_array(aa, std::cout); }
 
 #endif

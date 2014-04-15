@@ -14,6 +14,7 @@
 #include <iostream>
 #include <random>
 #include <type_traits>
+#include <utility>
 
 #include "./aggregation.hpp"
 
@@ -22,8 +23,8 @@ Num sigmoid(const Num& input) {
   static_assert( std::is_floating_point<Num>::value
 		 , "sigmoid only makes sense for floating point numbers");
   /* speed up following example at http://msdn.microsoft.com/en-us/magazine/jj658979.aspx */
-  /* if(input < -45.0) return -1.0; */
-  /* if(input > 45.0) return 1.0; */
+  if(input < -45.0) return 0.0;
+  if(input > 45.0) return 1.0;
   return 1.0 / (1.0 + exp(-input));
 }
 
@@ -47,12 +48,14 @@ struct FeedNet : public TagBase {
   typedef A Layer;
   typedef typename Next::Output Output;
 
-  static constexpr bool Recursive = true;
-
   Layer layer;
   Next next;
   
   Output& output_layer() { return next.output_layer(); }
+
+  FeedNet() : layer{} {}
+  FeedNet(float n) : next(n) { ref_map([&](float &f) { f = n; }, layer); }
+  FeedNet(const FeedNet &feed) : layer(feed.layer), next(feed.next) {}
 };
   
 /* Base class */
@@ -64,13 +67,14 @@ struct FeedNet<A> : public TagBase {
   typedef A Layer;
   typedef A Output;
 
-  static constexpr bool Recursive = false;
-
+  _void next;
   Layer layer;
 
   Output& output_layer() { return layer; }
-};
 
+  FeedNet() : layer{} {}
+  FeedNet(float n) { ref_map([&](float &f) { f = n; }, layer); }
+};
 
 /**************************/
 /*  _   _ _   _      _    */
@@ -91,7 +95,7 @@ class NNet : public TagBase {
 public:
   typedef NNet_tag tag;
   
-  typedef FeedNet<A, Layers ...> FeedType;
+  typedef FeedNet<A, Layers ...> Feed;
   typedef NNet<Layers ...> Next;
 
   typedef typename NNet<Layers ...>::Input LayerOutput;
@@ -102,10 +106,10 @@ public:
 
   /* AugmentedInput includes a bias element of +1 with each node weights */
   typedef std::array<float, std::tuple_size<A>::value + 1 > NodeInput;
-  typedef std::array< NodeInput, std::tuple_size< LayerOutput >::value > Theta;
+  typedef std::array< NodeInput, std::tuple_size< LayerOutput >::value > Layer;
 
-  Theta theta;
   Next next;
+  Layer layer;
   
   static constexpr size_t node_size() { return std::tuple_size< LayerOutput >::value; }
 
@@ -113,16 +117,18 @@ public:
   static constexpr size_t node_input_size(size_t layer) { return std::tuple_size< NodeInput >::value; }
 
   template<class ... Rest>
-  NNet(A init, Rest ... rest) : theta(init), next(rest ...) {}
-  NNet() : theta{} {}
+  NNet(const Layer& init, Rest ... rest) :  next(rest ...) , layer(init) {}
+  NNet(const NNet& net) : next(net.next), layer(net.layer) {}
+  NNet() : layer{} {}
 };
 
 /* base case.  I one layer NNet doesn't make sense */
 template<class A, class B>
 class NNet<A, B> {
 public:
+  typedef NNet_tag tag;
   
-  typedef FeedNet<A, B> FeedType;
+  typedef FeedNet<A, B> Feed;
   typedef _void Next;
 
   typedef B LayerOutput;
@@ -133,204 +139,17 @@ public:
 
   /* AugmentedInput includes a bias element of +1 with each node weights */
   typedef std::array<float, std::tuple_size<A>::value + 1 > NodeInput;
-  typedef std::array< NodeInput, std::tuple_size< LayerOutput >::value > Theta;
+  typedef std::array< NodeInput, std::tuple_size< LayerOutput >::value > Layer;
 
-  Theta theta;
   Next next;
+  Layer layer;
   
   static constexpr size_t node_size() { return std::tuple_size< LayerOutput >::value; }
   static constexpr size_t node_input_size(size_t layer) { return std::tuple_size< NodeInput >::value; }
 
-  template<class ... Rest>
-  NNet(A init, Rest ... rest) : theta(init) {}
-  NNet() : theta{} {}
-};
-
-
-template<class T>
-struct TypeGetNext {
-  typedef T type;
-  static T&& apply(T &&input) { return std::forward<T>(input); }
-};
-
-template<class T>
-struct ClassGetNext {
-  typedef typename T::Next type;
-  static typename T::Next&& apply(T &&input) { return std::move(input.next); }
-};
-
-template<class T>
-struct GetNext
-  : public std::conditional< std::is_base_of<T, TagBase>::value
-			     , ClassGetNext<T>
-			     , TypeGetNext<T>
-			     >::type {};
-
-template<class T>
-typename GetNext<T>::type&& next(T &&input) {
-  return std::forward< typename GetNext<T>::type >( GetNext<T>::apply(input) );
-}
-
-
-/**************************************/
-/*  _____     _     _ _   _      _    */
-/* |  ___|__ | | __| | \ | | ___| |_  */
-/* | |_ / _ \| |/ _` |  \| |/ _ \ __| */
-/* |  _| (_) | | (_| | |\  |  __/ |_  */
-/* |_|  \___/|_|\__,_|_| \_|\___|\__| */
-/**************************************/
-template<class LayerFn, class NetType>
-class FoldLayers {
-public:
-  template<class ... Aux>
-  static void map(Aux&& ... aux) {
-    LayerFn::apply(aux...);
-    FoldLayers<LayerFn, typename NetType::Next>::map( next(aux) ...);
-  }
-};
-
-template<class LayerFn>
-class FoldLayers<LayerFn,_void> {
-public:
-  template<class ... Aux> static void map(Aux...) { }
-};
-
-
-/**
- * Fold a net with static functions
- * 
- * @tparam Net:
- */
-template<class NetType>
-class FoldNet {
-public:
-  typedef NetType Net;
-  typedef typename Net::FeedType Feed;
-  typedef FoldNet<typename Net::Next> Next;
-
-private:
-  template<class Fn, class Output>
-  static void rmap_helper(Fn fn
-			  , Net& net
-			  , const typename Feed::Next &feed
-			  , Output& output) {
-    size_t idx = 1;
-
-    
-    /* Apply< typename NextArgs<void (*)(Fn,Net,const typename Feed::Next&, decltype(feed.layer)) >::type */
-    /* 	   , &Next::rmap_helper >::void_do_it; */
-    Next::rmap_helper(fn, feed.next, net.next, feed.layer);
-
-    net.fold_nodes([&](float theta) {
-	output[idx] = idx ? fn(theta, 1) : fn(theta, feed.layer[idx]);
-	++idx;
-      },
-      [&]() { idx = 1; } );
-  }
-
-public:
-  /**
-   * Augments each row of the input array with an initial '1' and folds
-   * with a network of matching dimentions.
-   *
-   * Results are stored in the FeedNet
-   */
-  template<class Fn>
-  static void augment_map(Fn fn, Feed& feed, const Net& net) {
-    typename Feed::Next::Layer& output = feed.next.layer;
-
-    ::fold( [&](const typename Net::NodeInput& node) {
-	size_t idx = 0;
-	::fold([&](float theta) {
-	    output[idx] = idx ? fn(theta, 1) : fn(theta, feed.layer[idx]);
-	    ++idx;
-	  }, node);
-      }, net.theta);
-
-    Next::argument_map(fn, feed.next, net.next);
-  }
-
-  /**
-   * Maps from deep layers onto shallow.
-   * 
-   * Note drops node[0] (the bias weight) from the neural net to make
-   * the dimentions match
-   * 
-   * @tparam Fn:
-   * @tparam Feeds:
-   * @return: 
-   */
-  template<class Fn, class Feeds>
-  static void rmap(Fn fn, Net& net, const Feeds& feed) {
-    rmap_helper(fn, net, feed.next, feed.layer);
-  }
-
-  template<class Fn>
-  static void map(const Fn fn, Net &aa, const Net &bb) {
-    for(size_t node = 0; node < Net::node_size(); ++node) {
-      for(size_t weight = 0; weight < Net::node_input_size(); ++weight) {
-	aa.theta[node][weight] = fn( aa.theta[node][weight], bb.theta[node][weight]);
-      }}
-    Next::map(fn, aa, bb);
-  }
-
-
-  template<class Fn>
-  static void map(Fn fn, Net& net) {
-    for(size_t i = 0, end = std::tuple_size< typename Net::LayerOutput >::value;
-	i < end; ++i) {
-      for(size_t j = 0, end_j = std::tuple_size< typename Net::Input >::value;
-	  j < end_j; ++j)
-	net.theta[i][j] = fn( net.theta[i][j] );
-    }
-    Next::map(fn, net.next);
-  }
-
-
-  template<class Fn>
-  static void fold(Fn fn, const Net& net) {
-    // Next::fold(fn, net.next);
-  }
-
-  template<class Fn, class FnLayer>
-  static void fold(Fn fn, FnLayer fn_layer, const Net& net) {
-    fold(fn, net);
-    fn_layer();
-
-    Next::fold(fn,fn_layer, net.next);
-  }
-
-  static typename Net::LayerOutput&& layer_predict(const Net& net, const typename Net::Input& input) {
-    typename Net::LayerOutput output{};
-    for(size_t i = 0, end = std::tuple_size< typename Net::LayerOutput >::value;
-	i < end; ++i) {
-      output[i] = net.theta[i][0];
-      for(size_t j = 1, end = std::tuple_size< typename Net::Input >::value;
-	  j < end; ++j)
-	output[i] += input[j] * net.theta[i][j];
-
-      output[i] = sigmoid(output[i]);
-    }
-
-    return std::move(output);
-  }
-
-  static typename Net::Output&& predict(const Net& net, const typename Net::Input& input) {
-    return std::move( Next::predict(net.next, layer_predict(net, input)) );
-  }
-};
-
-/* base class */
-template<>
-class FoldNet< _void > {
-public:
-  template<class Fn, class FnLayer> static void fold(Fn, FnLayer, _void) {}
-  template<class Fn> static void fold(Fn,  _void) {}
-
-  template<class Net, class Input>
-  static Input&& predict(const Net& net, const Input& input) {
-    return std::move( Input(input) );
-  }
+  NNet(const Layer& init) : layer(init) {}
+  NNet(const NNet& net) : next(net.next), layer(net.layer) {}
+  NNet() : layer{} {}
 };
 
 /*************************************************/
@@ -340,72 +159,286 @@ public:
 /* |  _|| |_| | | | | (__| |_| | (_) | | | \__ \ */
 /* |_|   \__,_|_| |_|\___|\__|_|\___/|_| |_|___/ */
 /*************************************************/
+namespace recurrence_detail {
+  template<class T>
+  struct TypeGetNext {
+    typedef T Next;
+    static T&& apply(T &&input) {
+      return std::forward<T>(input);
+    }};
+
+  template<class T>
+  struct ClassGetNext {
+    typedef typename T::Next Next;
+    static Next&& apply(T&& input) {
+      return std::forward<Next>( input.next );
+    }};
+
+  template<class T>
+  struct GetNext
+    : public std::conditional< std::is_class<T>::value && std::is_base_of<TagBase ,T>::value
+			       , ClassGetNext<T>
+			       , TypeGetNext<T>
+			       >::type {};
+
+  /*********************************************/
+  /*  ___    _    _ _                          */
+  /* | __|__| |__| | |   __ _ _  _ ___ _ _ ___ */
+  /* | _/ _ \ / _` | |__/ _` | || / -_) '_(_-< */
+  /* |_|\___/_\__,_|____\__,_|\_, \___|_| /__/ */
+  /*                          |__/             */
+  /*********************************************/
+  template<class LayerFn, class NetType>
+  struct FoldLayers {
+    template<class ... Aux>
+    static void map(Aux&& ... aux) {
+      LayerFn::apply(aux...);
+      /* Majestic... */
+      FoldLayers<LayerFn, typename NetType::Next
+		 >::map( GetNext<typename std::remove_reference<Aux>::type
+			 >::apply( std::forward<typename std::remove_reference<Aux>::type >(aux) ) ...);
+    }
+  };
+
+  template<class LayerFn>
+  struct FoldLayers<LayerFn,_void> {
+    template<class ... Aux> static void map(Aux...) { }
+  };
+
+  /*************************************************/
+  /*  ___ ___    _    _ _                          */
+  /* | _ \ __|__| |__| | |   __ _ _  _ ___ _ _ ___ */
+  /* |   / _/ _ \ / _` | |__/ _` | || / -_) '_(_-< */
+  /* |_|_\_|\___/_\__,_|____\__,_|\_, \___|_| /__/ */
+  /*                              |__/             */
+  /*************************************************/
+  template<class LayerFn, class NetType>
+  struct RFoldLayers {
+    template<class ... Aux>
+    static void map(Aux&& ... aux) {
+      RFoldLayers<LayerFn, typename NetType::Next
+		  >::map( GetNext<typename std::remove_reference<Aux>::type
+			  >::apply( std::forward<typename std::remove_reference<Aux>::type >(aux) ) ...);
+      LayerFn::apply(aux...);
+    }};
+
+    template<class LayerFn>
+    struct RFoldLayers<LayerFn,_void> {
+      template<class ... Aux> static void map(Aux...) { }
+    };
+
+  /******************************************************************/
+  /*  ___    _    _ ___                __      __   _      _   _    */
+  /* | __|__| |__| | __|_ _____ _ _ _  \ \    / /__(_)__ _| |_| |_  */
+  /* | _/ _ \ / _` | _|\ V / -_) '_| || \ \/\/ / -_) / _` | ' \  _| */
+  /* |_|\___/_\__,_|___|\_/\___|_|  \_, |\_/\_/\___|_\__, |_||_\__| */
+  /*                                |__/             |___/          */
+  /******************************************************************/
+  struct FoldEveryWeight {
+    template<class Fn, class LayerFn, class Net>
+    static void apply(Fn fn, LayerFn layer_fn, Net net) {
+      layer_fn();
+      array_fold( [&](decltype(net.layer[0])&& weights) {
+	  array_fold(fn, weights);
+	}, net.layer);
+    }
+
+    template<class Fn, class NodeFn, class LayerFn, class Net>
+    static void apply(Fn fn, NodeFn node_fn, LayerFn layer_fn, Net net) {
+      layer_fn();
+      array_fold( [&](decltype(net.layer[0])&& weights) {
+	  node_fn();
+	  array_fold(fn, weights);
+	}, net.layer);
+    }
+
+    template<class Fn, class Net>
+    static void apply(Fn fn, Net net) {
+      array_fold( [&](decltype(net.layer[0])&& weights) {
+	  array_fold(fn, weights);
+	}, net.layer);
+    }};
+
+
+  struct MapFeed {
+    template<class Fn, class Feed, class ... Rest>
+    static void apply(Fn fn, Feed &feed, Rest& ... rest) {
+      ref_map(fn, feed.layer, rest.layer...);
+    }};
+
+  struct MapFeedLayers {
+    template<class Fn, class LayerFn, class Feed>
+    static void apply(Fn fn, LayerFn layer_fn, Feed &feed) {
+      layer_fn();
+      array_fold(fn, feed.layer);
+    }};
+
+  /*********************************************************************/
+  /*  __  __           ___                __      __   _      _   _    */
+  /* |  \/  |__ _ _ __| __|_ _____ _ _ _  \ \    / /__(_)__ _| |_| |_  */
+  /* | |\/| / _` | '_ \ _|\ V / -_) '_| || \ \/\/ / -_) / _` | ' \  _| */
+  /* |_|  |_\__,_| .__/___|\_/\___|_|  \_, |\_/\_/\___|_\__, |_||_\__| */
+  /*             |_|                   |__/             |___/          */
+  /*********************************************************************/
+  struct MapWeight {
+    template<class Fn, class ... Nets>
+    static void apply(Fn fn, Nets& ... rest) {
+      ::ref_map( [&](decltype(rest.layer[0])& ... weights) {
+	  ::ref_map(fn, weights...);
+	}, rest.layer ...);
+    }};
+
+  struct MapWeightLayer {
+    template<class Fn, class LayerFn, class ... Nets>
+    static void apply(Fn fn, LayerFn layer_fn, Nets& ... net) {
+      layer_fn();
+      array_fold( [&](decltype(net.layer[0])& ... weights) {
+	  ::ref_map(fn, weights...);
+	}, net.layer...);
+    }};
+}
+
 /*********************************************/
 /*  ___                                      */
 /* | _ \___ __ _  _ _ _ _ _ ___ _ _  __ ___  */
 /* |   / -_) _| || | '_| '_/ -_) ' \/ _/ -_) */
 /* |_|_\___\__|\_,_|_| |_| \___|_||_\__\___| */
 /*********************************************/
-namespace recurrence_detail {
-  struct FoldEveryWeight {
-    template<class Fn, class LayerFn, class Net>
-    static void apply(Fn fn, LayerFn layer_fn, Net& net) {
-      ::fold( [&](decltype(net.theta[0])&& weights) {
-	  ::fold(fn, weights);
-	  layer_fn();
-	}, net.theta);
-    }
-
-    template<class Fn, class Theta>
-    static void apply(Fn fn, Theta& theta) {
-      ::fold( [&](const decltype(theta[0])& weights) {
-	  ::fold(fn, weights);
-	}, theta);
-    }};
-}
-
 template<class Fn, class Net>
-void fold(Fn fn, const Net& net) {
+void fold(const Fn fn, const Net& net) {
   using namespace recurrence_detail;
-  FoldLayers<FoldEveryWeight, Net>::fold(fn, net);
+  FoldLayers<FoldEveryWeight, Net>::map(fn, const_cast<Net&>(net));
 }
 
 template<class Fn, class LayerFn, class Net>
-void fold(Fn fn, LayerFn layer_fn, const Net& net) {
+void fold(Fn fn, LayerFn layer_fn, Net& net) {
   using namespace recurrence_detail;
   FoldLayers<FoldEveryWeight, Net>::map(fn, layer_fn, net);
 }
 
+template<class Fn, class NodeFn, class LayerFn, class Net>
+void fold(Fn fn, NodeFn node_fn, LayerFn layer_fn, Net& net) {
+  using namespace recurrence_detail;
+  FoldLayers<FoldEveryWeight, Net>::map(fn, node_fn, layer_fn, net);
+}
 
+template<class Fn, class Net, class ... Rest>
+void map(Fn fn, Net& net, Rest& ... rest) {
+  using namespace recurrence_detail;
+  FoldLayers<MapWeight, Net>::map(fn, net, rest...);
+}
+
+
+
+/**
+ * Prints the networks weights for each layer
+ * @tparam Net:
+ * @return: 
+ */
 template<class Net>
-std::ostream& print_theta(const Net& net, std::ostream &out) {
+std::ostream& print_network(Net& net, std::ostream &out) {
   using namespace std;
+  static_assert( std::is_same<NNet_tag, typename Net::tag>::value
+		 , "print_network only works for NNet");
 
+  out << "(l";
   fold([&](float f) { out << " " << f; }
-      , [&]() { out << endl; }
+      , [&]() { out << ") (n"; }
+      , [&]() { out << ")\n(l"; }
       , net);
+  out << ")";
 
   return out;
 }
 
 template<class Net>
-std::istream& read_theta(Net& net, std::istream &in) {
+std::ostream& print_network(Net& net) {  return print_network(net, std::cout); }
+
+template<class Feed>
+std::ostream& print_feed(Feed& feed, std::ostream &out) {
+  using namespace recurrence_detail;
   using namespace std;
-  net.map([&](float& f) { in >> f; });
+
+  static_assert( is_same<FeedNet_tag, typename Feed::tag>::value
+		 , "print_feed only works for a FeedNet");
+
+  FoldLayers<MapFeedLayers, Feed
+	     >::map([&](float ff)
+		    { cout << " " << ff; }
+		    , [&] () { cout << endl; }
+		    , feed);
+  return out;
+}
+
+template<class Feed>
+std::ostream& print_feed(Feed& feed) { return print_feed(feed, std::cout); }
+
+
+template<class Net>
+std::istream& read_layer(Net& net, std::istream &in) {
+  using namespace std;
+  net.map([&](float& f) {
+      char c = in.peek();
+      while( !(c == '-' || (c > '0' && c < '9')) ) {
+	in.ignore();
+	c = in.peek();
+      }
+      in >> f;
+    });
   return in;
 }
 
 template<class Net>
 void permute(Net &n, float low, float high) {
   using namespace std;
+  using namespace recurrence_detail;
+
   random_device rd;
   mt19937 gen(rd());
 
   uniform_real_distribution<float> dist(low, high);
 
-  FoldNet<Net>::map([&](float f) {
-      return f += dist(gen);
-    }, n);
+  FoldLayers<MapWeight, Net
+	     >::map([&](float& f)  {
+		 f += dist(gen);
+	       }, n);
+}
+
+/*******************************/
+/*  ___            _ _    _    */
+/* | _ \_ _ ___ __| (_)__| |_  */
+/* |  _/ '_/ -_) _` | / _|  _| */
+/* |_| |_| \___\__,_|_\__|\__| */
+/*******************************/
+namespace recurrence_detail {
+  /* compiler kevetches about local structs and templates, otherwise I'd put this in
+     predict */
+  struct PredictMap {
+    template<class Net>
+    static void apply(Net& net, typename Net::Feed& feed) {
+      using namespace std;
+      static_assert( tuple_size<typename Net::NodeInput>::value == tuple_size<typename Net::Feed::Layer>::value + 1
+		     , "PredictMap feed/net dimention mismatch.");
+      ref_map([&](decltype(net.layer[0])& node
+		  , float &dst) {
+		ref_map( [&](float &nn, float &ff) {
+		    /* map over all the non-bias inputs */
+		    dst += nn * ff;
+		  }, node
+		  , feed.layer);
+		/* include the bias input */
+		dst = sigmoid(dst + node.back());
+	      } , net.layer
+	      , feed.next.layer);
+    }};
+}
+
+template<class Net>
+typename Net::Feed& predict(Net& net, typename Net::Feed& feeds) {
+  using namespace recurrence_detail;
+  FoldLayers<PredictMap, Net>::map(net, feeds);
+
+  return feeds;
 }
 
 #endif

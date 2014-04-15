@@ -22,14 +22,19 @@ int main() {
 
   int samples = 200;
 
-  normal_distribution<> dst_x1(-2,1), dst_y1(2,2)
+  normal_distribution<>
+    dst_x1(-2,1), dst_y1(2,8)
     , dst_x2(4,1), dst_y2(-4,3);
 
+  float rot_x = sin(30),
+    rot_y = cos(30);
+
+
   for(int i = 0; i < samples; ++i) {
-    out1 << dst_x1(gen) << " " << dst_x2(gen) << "\n";
+    out1 << dst_x1(gen) * rot_x << " " << dst_y1(gen) * rot_y  << "\n";
   }
 
   for(int i = 0; i < samples; ++i) {
-    out2 << dst_y1(gen) << " " << dst_x2(gen) << "\n";
+    out2 << dst_x2(gen) << " " << dst_y2(gen) << "\n";
   }
 }
