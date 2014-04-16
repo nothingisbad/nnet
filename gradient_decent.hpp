@@ -30,48 +30,42 @@ namespace recurrence_detail {
 		     , "back_propigation: network/feed mismatch" );
 
       /* map every node with the feed[+1] layer, output to the feed[+0] layer */
-      typename Net::Feed::Layer accumulate{};
+      typename Net::NodeInput accumulate{};
 
       /* For each node, compute the per-weight error of its inputs*/
       ref_map([&](decltype(net.layer.back()) &node
 		  , const float output_error) {
-		/* cout << "itr: " << i++ << " err: " << output_error << endl; */
-		/* cout << "node: "; */
-		/* print_array(node) << endl;; */
-		/* cout << "accumulate: "; */
-		/* print_array(accumulate) << endl; */
-
 		ref_map([&](float &acc, float &nn) {
 		    acc += nn * output_error;
 		  }, accumulate, node);
-		/* Set the gradient here as the bias weight is an
-		   inconvinient point to iterate to */
-		node.back() *= output_error * 0.19661193324148185; 
-	      }, net.layer, feed.next.layer);
+	      }, net.layer
+	      , feed.next.layer);
 
-      /* cout << "**weighted_err: "; */
-      /* print_array(feed.layer) << endl; */
-
-      /* gets me d(n-1) by multiplying the sum of weighted errors on the outgoing nodes
-	 by the dG/dt of the activation of the current node */
-      ref_map([&](const float fs, float &weighted_err) {
-	  weighted_err = weighted_err * (fs * (1 - fs)); 
+      /* gets store d(n) for use by the enclosing recurance */
+      ref_map([&](float &activation, float weighted_err) {
+	  activation = weighted_err * (activation * (1 - activation)); 
 	}, feed.layer, accumulate);
 
-      /* set the per-weight gradients */
-      ref_map([&](typename Net::Layer::value_type &node
-		  , const float fs) {
-		ref_map([&](float &nn) { nn = fs * nn; }, node);
-		
-	      }, net.layer, feed.layer);
+      ref_map([&](typename Net::NodeInput& node){
+	  ref_map([](float &activation, const float delta, float &nn) {
+	      nn = activation * delta;
+	    }, feed.layer, feed.next.layer, node);
+	  node.back() = accumulate.back() * 0.19661193324148185; 
+	}, net.layer);
 
-      feed.layer = accumulate;
+      cout << "Theta: \n";
+      ref_map([&](typename Net::NodeInput& node) {
+	  ref_map([&](float nn) {
+	      cout << " " << nn;
+	    }, node);
+	  cout << "\n";
+	}, net.layer);
     }};  }
 
 template<class Net, class Feeds>
 void back_propigate(Net& net, Feeds &feed) {
   using namespace recurrence_detail;
-  RFoldLayers<RMap, Net>::map( net, feed);
+  RMapLayers<RMap, Net>::map( net, feed);
 }
 
 /******************************************************************/
@@ -82,26 +76,38 @@ void back_propigate(Net& net, Feeds &feed) {
 /*  \___\___/|___/\__|___|_|  \__,_|_| |_|\___|\__|_|\___/|_| |_| */
 /*                  |_____|                                       */
 /******************************************************************/
-template<class NetType, class ErrorFn>
-auto cost_function(NetType& net
-		   , const std::vector< typename NetType::Feed::Layer >& training_data
-		    , const std::vector< typename NetType::Output >& training_lables
+namespace recurrence_detail {
+  struct RegMap {
+    template<class Net>
+    static void apply(float &reg, Net &net) {
+      ref_map([&](typename Net::NodeInput &inputs) {
+	  Map<0,-1>::apply( [&](float ff) {
+	      // std::cout << "  ff: " << ff << std::endl;
+	      reg += ff * ff;
+	    }, inputs);
+	}, net.layer);
+    }}; }
+
+template<class Net, class ErrorFn>
+auto cost_function(Net& net
+		   , const std::vector< typename Net::Feed::Layer >& training_data
+		    , const std::vector< typename Net::Output >& training_lables
 		    , ErrorFn error
 		    , float regularization_constant
-		   ) -> std::tuple<NetType, float>{
+		   ) -> std::tuple<Net, float>{
   using namespace recurrence_detail;
   using namespace std;
 
   static_assert( is_same<bool, decltype(error(1.0f,1.0f))>::value
 		 , "error function is expected to return bool (true if considered a label match)");
 
-  typedef typename NetType::Feed Feed;
-  NetType dEdt, dEdt_cumulative;
+  typedef typename Net::Feed Feed;
+  Net dEdt, dEdt_cumulative;
 
   Feed forward{} , back{};
 
   size_t m = training_lables.size();
-  double J  = 0.0, h, y;
+  double J  = 0.0;
 
   for(size_t i = 0; i < m; ++i) {
     dEdt = net;
@@ -112,13 +118,11 @@ auto cost_function(NetType& net
     back = forward;
 
 
-    for(size_t k = 0; k < std::tuple_size< typename NetType::Output >::value; ++k) {
-      h = forward.output_layer()[k];
-      y = training_lables[i][k];
-      J -= error(h, y) ? log(h) : log(1 - h);
-
-      back.output_layer()[k] = y - h;
-    }
+    ref_map([&](const float h, const float y, float &output_err) {
+	J -= error(h, y) ? log(h) : log(1 - h);
+	cout << "h: " << h << " y: " << y << " incremental cost : " <<  (error(h, y) ? log(h) : log(1 - h)) << endl;
+	output_err = h - y;
+      }, forward.output_layer(), training_lables[i], back.output_layer());
 
     /* cout << "Forward:"; */
     /* print_feed(forward) << "\n"; */
@@ -143,11 +147,10 @@ auto cost_function(NetType& net
   // print_network(net, cout);
 
   /* recularize the cost */
-  double reg = 0;
-  fold([&](float f) -> void {
-      reg += f * f;
-    }, net);
-  reg *= (regularization_constant / (2 * m));
+  float reg = 0;
+  /* should get  me the sum-squared of the weight coefficients */
+  MapLayers< RegMap, Net >::map(reg, net);
+
   J += reg;
 
   /* take the mean regularized gradient */
@@ -180,7 +183,7 @@ std::ostream& print_gradient(Net& net, typename Net::Feed& grad) {
   using namespace recurrence_detail;
   using namespace std;
 
-  FoldLayers<PrintGradient, Net>::map(net,grad);
+  MapLayers<PrintGradient, Net>::map(net,grad);
   cout << "(W";
   ref_map([&](float ff) { cout << " " << ff;}, grad.output_layer());
   cout << ")";

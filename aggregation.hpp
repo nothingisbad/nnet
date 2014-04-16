@@ -14,21 +14,21 @@
 #include <algorithm>
 #include <iostream>
 
-template<class FN, class T, class ... Aux>
-void ref_map(FN fn , T& dst, Aux& ... aux) {
-  for(size_t i = 0; i < std::min( {std::tuple_size< T >::value
-	                          , std::tuple_size<Aux>::value ...} )
-	; ++i)
-    fn(dst[i], aux[i]...);
-}
+template<int Start = 0, int End = 0>
+struct Map {
+  template<class FN, class T, class ... Aux>
+  static void apply(FN fn , T& dst, Aux& ... aux) {
+    const static size_t last =
+      End <= 0 ? std::min( {std::tuple_size< T >::value, std::tuple_size<Aux>::value ...} ) + End
+               : End;
+
+    for(size_t i = Start; i < last ; ++i)
+      fn(dst[i], aux[i]...);
+  }
+};
 
 template<class FN, class T, class ... Aux>
-void ref_map_tail(FN fn , T& dst, Aux& ... aux) {
-  for(size_t i = 1; i < std::min( {std::tuple_size< T >::value
-	                          , std::tuple_size<Aux>::value ...} )
-	; ++i)
-    fn(dst[i], aux[i]...);
-}
+void ref_map(FN fn , T& dst, Aux& ... aux) { Map<>::apply(fn,dst,aux...); }
 
 template<class FN, class T>
 void array_fold(FN fn, T src) {
@@ -43,7 +43,7 @@ std::ostream& print_array(const A& aa, std::ostream& out) {
     return cout << "[]";
 
   cout << "[" << aa[0];
-  ref_map_tail([&](float ff) { out << ", " << ff; }, aa);
+  Map<1>::apply([&](float ff) { out << ", " << ff; }, aa);
   return cout << "]";
 }
 

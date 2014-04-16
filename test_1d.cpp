@@ -33,7 +33,7 @@ int main() {
   std::mt19937 gen(rd());
 
   typedef NNet< array<float,1>
-		, array<float,2>
+		, array<float,6>
 		, array<float,1> >
     Net;
   typedef typename Net::Feed Feed;
@@ -77,7 +77,7 @@ int main() {
     auto cost = cost_function(net, train_X, train_Y, error, 0.5);
 
     //cout << "* cost: " << get<1>(cost) << endl;;
-    if(old_cost < get<1>(cost)) {
+    if(old_cost <= get<1>(cost)) {
       cout << "COST INCREASE! iteration " << i << endl;
 
       cout << "\n* Gradient (cost " << get<1>(cost) << ")\n";
@@ -89,7 +89,7 @@ int main() {
     old_cost = get<1>(cost);
 
     map([&](float &nn, float &grad) {
-	nn -= grad * get<1>(cost);
+    	nn -= grad;
       }, net, get<0>(cost));
 
   }

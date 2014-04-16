@@ -1,7 +1,7 @@
 test_NNet
-madelon
 *.txt
 make_dist
 test_1d
 test_simple
 test_GD
+\*scheme\*

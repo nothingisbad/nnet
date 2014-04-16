@@ -18,6 +18,9 @@
 
 #include "./aggregation.hpp"
 
+template<size_t N>
+struct intC : public std::integral_constant<size_t, N>::type {};
+
 template<class Num>
 Num sigmoid(const Num& input) {
   static_assert( std::is_floating_point<Num>::value
@@ -40,12 +43,15 @@ struct _void { typedef _void type; };
 struct FeedNet_tag;
 struct TagBase {};
 
-template<class A, class ...Layers>
-struct FeedNet : public TagBase {
+template<class N, class ...Layers>
+struct FeedNet;
+
+template<size_t N, class ... Layers>
+struct FeedNet<intC<N>, Layers...> : public TagBase {
   typedef FeedNet_tag tag;
 
   typedef FeedNet<Layers ...> Next;
-  typedef A Layer;
+  typedef std::array<float, N> Layer;
   typedef typename Next::Output Output;
 
   Layer layer;
@@ -59,13 +65,13 @@ struct FeedNet : public TagBase {
 };
   
 /* Base class */
-template<class A>
-struct FeedNet<A> : public TagBase {
+template<size_t N>
+struct FeedNet< intC<N> > : public TagBase {
   typedef FeedNet_tag tag;
 
   typedef _void Next;
-  typedef A Layer;
-  typedef A Output;
+  typedef std::array<float,N> Layer;
+  typedef Layer Output;
 
   _void next;
   Layer layer;
@@ -90,65 +96,69 @@ struct FeedNet<A> : public TagBase {
  */
 struct NNet_tag;
 
-template<class A, class ... Layers>
-class NNet : public TagBase {
+template<class N, class ... Layers>
+class NNet;
+
+template<size_t N, class ... Layers>
+class NNet<intC<N>, Layers...> : public TagBase {
 public:
   typedef NNet_tag tag;
   
-  typedef FeedNet<A, Layers ...> Feed;
+  typedef FeedNet< intC<N>, Layers ... > Feed;
   typedef NNet<Layers ...> Next;
 
-  typedef typename NNet<Layers ...>::Input LayerOutput;
+  typedef typename NNet<Layers...>::Input LayerOutput;
   typedef typename NNet<Layers ...>::Output Output;
-  typedef A Input;
+  /* add one for bias */
+  typedef std::array<float,N > Input;
 
   constexpr static size_t depth = Next::depth + 1;
 
-  /* AugmentedInput includes a bias element of +1 with each node weights */
-  typedef std::array<float, std::tuple_size<A>::value + 1 > NodeInput;
-  typedef std::array< NodeInput, std::tuple_size< LayerOutput >::value > Layer;
+  typedef std::array<float, N + 1> NodeInput;
+  typedef std::array<NodeInput, std::tuple_size< LayerOutput >::value > Layer;
 
   Next next;
   Layer layer;
   
-  static constexpr size_t node_size() { return std::tuple_size< LayerOutput >::value; }
+  static constexpr size_t node_count() { return std::tuple_size< LayerOutput >::value; }
 
   /* counts the bias */
-  static constexpr size_t node_input_size(size_t layer) { return std::tuple_size< NodeInput >::value; }
+  static constexpr size_t node_input_size(size_t layer) { return N; }
 
   template<class ... Rest>
   NNet(const Layer& init, Rest ... rest) :  next(rest ...) , layer(init) {}
+
   NNet(const NNet& net) : next(net.next), layer(net.layer) {}
   NNet() : layer{} {}
 };
 
 /* base case.  I one layer NNet doesn't make sense */
-template<class A, class B>
-class NNet<A, B> {
+template<size_t N, size_t M>
+class NNet< intC<N>, intC<M> > {
 public:
   typedef NNet_tag tag;
   
-  typedef FeedNet<A, B> Feed;
+  typedef FeedNet<intC<N>, intC<M> > Feed;
   typedef _void Next;
 
-  typedef B LayerOutput;
-  typedef B Output;
-  typedef A Input;
+  typedef std::array<float,M> LayerOutput;
+  typedef LayerOutput Output;
+  typedef std::array<float,N> Input;
 
   constexpr static size_t depth = 1;
 
   /* AugmentedInput includes a bias element of +1 with each node weights */
-  typedef std::array<float, std::tuple_size<A>::value + 1 > NodeInput;
+  typedef std::array<float, N + 1> NodeInput;
   typedef std::array< NodeInput, std::tuple_size< LayerOutput >::value > Layer;
 
   Next next;
   Layer layer;
   
-  static constexpr size_t node_size() { return std::tuple_size< LayerOutput >::value; }
-  static constexpr size_t node_input_size(size_t layer) { return std::tuple_size< NodeInput >::value; }
+  static constexpr size_t node_count() { return M; }
+  static constexpr size_t node_input_size(size_t layer) { return N+1; }
 
   NNet(const Layer& init) : layer(init) {}
-  NNet(const NNet& net) : next(net.next), layer(net.layer) {}
+  NNet(const NNet& net) : layer(net.layer) {}
   NNet() : layer{} {}
 };
 
@@ -161,69 +171,83 @@ public:
 /*************************************************/
 namespace recurrence_detail {
   template<class T>
-  struct TypeGetNext {
+  struct PassThrough {
     typedef T Next;
-    static T&& apply(T &&input) {
-      return std::forward<T>(input);
+    typedef typename std::remove_reference<T>::type Bare;
+
+    template<class U> 		/* needs to be template so it'll collapse the && when needed */
+    static U&& apply(U&& input) {
+      return std::forward<U>(input);
     }};
 
   template<class T>
   struct ClassGetNext {
-    typedef typename T::Next Next;
-    static Next&& apply(T&& input) {
+    typedef typename std::remove_reference<T>::type Bare;
+    typedef typename Bare::Next Next;
+
+    template<class U> 		/* needs to be template so it'll collapse the && when needed */
+    static auto apply(U&& input) -> decltype(input.next)&& {
       return std::forward<Next>( input.next );
     }};
 
   template<class T>
+  struct is_net_or_fee {
+    typedef typename std::remove_reference<T>::type Bare;
+    static constexpr bool value = std::is_class<Bare>::value && std::is_base_of<TagBase, Bare>::value;
+
+    typedef is_net_or_fee<Bare> type;
+  };
+
+  template<class T>
   struct GetNext
-    : public std::conditional< std::is_class<T>::value && std::is_base_of<TagBase ,T>::value
+    : public std::conditional< is_net_or_fee<T>::value
 			       , ClassGetNext<T>
-			       , TypeGetNext<T>
+			       , PassThrough<T>
 			       >::type {};
 
-  /*********************************************/
-  /*  ___    _    _ _                          */
-  /* | __|__| |__| | |   __ _ _  _ ___ _ _ ___ */
-  /* | _/ _ \ / _` | |__/ _` | || / -_) '_(_-< */
-  /* |_|\___/_\__,_|____\__,_|\_, \___|_| /__/ */
-  /*                          |__/             */
-  /*********************************************/
+  /************************************************/
+  /*  __  __           _                          */
+  /* |  \/  |__ _ _ __| |   __ _ _  _ ___ _ _ ___ */
+  /* | |\/| / _` | '_ \ |__/ _` | || / -_) '_(_-< */
+  /* |_|  |_\__,_| .__/____\__,_|\_, \___|_| /__/ */
+  /*             |_|             |__/             */
+  /************************************************/
   template<class LayerFn, class NetType>
-  struct FoldLayers {
+  struct MapLayers {
     template<class ... Aux>
     static void map(Aux&& ... aux) {
       LayerFn::apply(aux...);
       /* Majestic... */
-      FoldLayers<LayerFn, typename NetType::Next
+      MapLayers<LayerFn, typename NetType::Next
 		 >::map( GetNext<typename std::remove_reference<Aux>::type
 			 >::apply( std::forward<typename std::remove_reference<Aux>::type >(aux) ) ...);
     }
   };
 
   template<class LayerFn>
-  struct FoldLayers<LayerFn,_void> {
+  struct MapLayers<LayerFn,_void> {
     template<class ... Aux> static void map(Aux...) { }
   };
 
-  /*************************************************/
-  /*  ___ ___    _    _ _                          */
-  /* | _ \ __|__| |__| | |   __ _ _  _ ___ _ _ ___ */
-  /* |   / _/ _ \ / _` | |__/ _` | || / -_) '_(_-< */
-  /* |_|_\_|\___/_\__,_|____\__,_|\_, \___|_| /__/ */
-  /*                              |__/             */
-  /*************************************************/
+  /****************************************************/
+  /*  ___ __  __           _                          */
+  /* | _ \  \/  |__ _ _ __| |   __ _ _  _ ___ _ _ ___ */
+  /* |   / |\/| / _` | '_ \ |__/ _` | || / -_) '_(_-< */
+  /* |_|_\_|  |_\__,_| .__/____\__,_|\_, \___|_| /__/ */
+  /*                 |_|             |__/             */
+  /****************************************************/
   template<class LayerFn, class NetType>
-  struct RFoldLayers {
+  struct RMapLayers {
     template<class ... Aux>
     static void map(Aux&& ... aux) {
-      RFoldLayers<LayerFn, typename NetType::Next
+      RMapLayers<LayerFn, typename NetType::Next
 		  >::map( GetNext<typename std::remove_reference<Aux>::type
 			  >::apply( std::forward<typename std::remove_reference<Aux>::type >(aux) ) ...);
       LayerFn::apply(aux...);
     }};
 
     template<class LayerFn>
-    struct RFoldLayers<LayerFn,_void> {
+    struct RMapLayers<LayerFn,_void> {
       template<class ... Aux> static void map(Aux...) { }
     };
 
@@ -258,7 +282,6 @@ namespace recurrence_detail {
 	  array_fold(fn, weights);
 	}, net.layer);
     }};
-
 
   struct MapFeed {
     template<class Fn, class Feed, class ... Rest>
@@ -307,26 +330,30 @@ namespace recurrence_detail {
 template<class Fn, class Net>
 void fold(const Fn fn, const Net& net) {
   using namespace recurrence_detail;
-  FoldLayers<FoldEveryWeight, Net>::map(fn, const_cast<Net&>(net));
+  MapLayers<FoldEveryWeight, Net>::map(fn, const_cast<Net&>(net));
 }
 
 template<class Fn, class LayerFn, class Net>
 void fold(Fn fn, LayerFn layer_fn, Net& net) {
   using namespace recurrence_detail;
-  FoldLayers<FoldEveryWeight, Net>::map(fn, layer_fn, net);
+  MapLayers<FoldEveryWeight, Net>::map(fn, layer_fn, net);
 }
 
 template<class Fn, class NodeFn, class LayerFn, class Net>
 void fold(Fn fn, NodeFn node_fn, LayerFn layer_fn, Net& net) {
   using namespace recurrence_detail;
-  FoldLayers<FoldEveryWeight, Net>::map(fn, node_fn, layer_fn, net);
+  MapLayers<FoldEveryWeight, Net>::map(fn, node_fn, layer_fn, net);
 }
 
 template<class Fn, class Net, class ... Rest>
 void map(Fn fn, Net& net, Rest& ... rest) {
   using namespace recurrence_detail;
-  FoldLayers<MapWeight, Net>::map(fn, net, rest...);
-}
+  MapLayers<MapWeight, Net>::map(fn, net, rest...); }
+
+template<class Fn, class Feed, class ... Rest>
+void map_feed(Fn fn, Feed &feed, Rest& ... rest) {
+  using namespace recurrence_detail;
+  MapLayers<MapFeed, Feed>::map(fn, feed, rest...); }
 
 
 
@@ -350,7 +377,6 @@ std::ostream& print_network(Net& net, std::ostream &out) {
 
   return out;
 }
-
 template<class Net>
 std::ostream& print_network(Net& net) {  return print_network(net, std::cout); }
 
@@ -362,14 +388,13 @@ std::ostream& print_feed(Feed& feed, std::ostream &out) {
   static_assert( is_same<FeedNet_tag, typename Feed::tag>::value
 		 , "print_feed only works for a FeedNet");
 
-  FoldLayers<MapFeedLayers, Feed
+  MapLayers<MapFeedLayers, Feed
 	     >::map([&](float ff)
 		    { cout << " " << ff; }
 		    , [&] () { cout << endl; }
 		    , feed);
   return out;
 }
-
 template<class Feed>
 std::ostream& print_feed(Feed& feed) { return print_feed(feed, std::cout); }
 
@@ -398,7 +423,7 @@ void permute(Net &n, float low, float high) {
 
   uniform_real_distribution<float> dist(low, high);
 
-  FoldLayers<MapWeight, Net
+  MapLayers<MapWeight, Net
 	     >::map([&](float& f)  {
 		 f += dist(gen);
 	       }, n);
@@ -421,6 +446,7 @@ namespace recurrence_detail {
 		     , "PredictMap feed/net dimention mismatch.");
       ref_map([&](decltype(net.layer[0])& node
 		  , float &dst) {
+		dst = 0.0;
 		ref_map( [&](float &nn, float &ff) {
 		    /* map over all the non-bias inputs */
 		    dst += nn * ff;
@@ -436,7 +462,7 @@ namespace recurrence_detail {
 template<class Net>
 typename Net::Feed& predict(Net& net, typename Net::Feed& feeds) {
   using namespace recurrence_detail;
-  FoldLayers<PredictMap, Net>::map(net, feeds);
+  MapLayers<PredictMap, Net>::map(net, feeds);
 
   return feeds;
 }

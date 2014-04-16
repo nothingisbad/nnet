@@ -43,7 +43,7 @@ int main() {
   predict(net, feed);
 
   cout << " (Forward fed: ";
-  FoldLayers<MapFeedLayers, Feed
+  MapLayers<MapFeedLayers, Feed
 	     >::map( [&](float f) {
 		 cout << f << " ";
 	       } , [&]() {
@@ -58,7 +58,7 @@ int main() {
     }, net, feed);
 
   cout << " (back propigated: ";
-  FoldLayers<MapFeedLayers, Feed
+  MapLayers<MapFeedLayers, Feed
 	     >::map( [&](float f) {
 		 cout << f << " ";
 	       } , [&]() {
