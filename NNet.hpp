@@ -16,58 +16,8 @@
 #include <type_traits>
 #include <utility>
 
-#include "./aggregation.hpp"
+#include "./utility.hpp"
 
-template<size_t N>
-struct intC : public std::integral_constant<size_t, N>::type {};
-
-template<class Num>
-Num sigmoid(const Num& input) {
-  static_assert( std::is_floating_point<Num>::value
-		 , "sigmoid only makes sense for floating point numbers");
-  /* speed up following example at http://msdn.microsoft.com/en-us/magazine/jj658979.aspx */
-  if(input < -45.0) return 0.0;
-  if(input > 45.0) return 1.0;
-  return 1.0 / (1.0 + exp(-input));
-}
-
-/* Well, std library has some metaprogramming stuff now, but it's missing a lot. */
-struct _void {
-  typedef _void type;
-  /* eats constructor args so I can use it to terminate
-     recursive constructors */
-  template<class ... T>
-  _void(T...) {}
-};
-
-template<class T> struct Identity { typedef T type; };
-
-template<class T, class U = typename T::type>
-struct IsVoid : std::false_type {};
-
-template<class T>
-struct IsVoid<T,_void> : std::true_type {};
-
-template<size_t ... Rest> struct Nums;
-
-namespace detail {
-  template<class T> struct GetDepth : public intC<T::depth + 1>::type {};
-}
-
-template<size_t NN, size_t ... Rest>
-struct Nums<NN, Rest...> {
-  typedef typename Nums<Rest ...>::type Next;
-  static const auto value = NN;
-
-  static const size_t depth = std::conditional< IsVoid<Next>::value
-						, intC<0>
-						, detail::GetDepth<Next>
-						>::type::value;
-
-  typedef Nums<NN, Rest...> type;
-};
-
-template<> struct Nums<> : public _void {};
 
 
 template<class T>
@@ -104,7 +54,9 @@ struct FeedNet : public FeedNet_tag {
   typedef typename FeedNet< typename NN::Next >::type Next;
   typedef std::array<float, NN::value > Layer;
 
+  typedef NN Dimention;
   const static size_t depth = NN::depth;
+  
 
   typedef typename std::conditional< std::is_same<_void, Next>::value
 				     , Identity< Layer >
@@ -134,48 +86,6 @@ struct FeedNet< _void > : public _void {};
 /* | |\  | |\  |  __/ |_  */
 /* |_| \_|_| \_|\___|\__| */
 /**************************/
-
-/* template<class N, class ... Layers> struct FeedNet; */
-
-/* template<size_t N, class ... Layers> */
-/* struct FeedNet<intC<N>, Layers...> : public FeedNet_tag { */
-/*   typedef FeedNet<Layers ...> Next; */
-/*   typedef std::array<float, N> Layer; */
-/*   typedef typename Next::Output Output; */
-
-/*   Layer layer; */
-/*   Next next; */
-  
-/*   Output& output_layer() { return next.output_layer(); } */
-
-/*   FeedNet() : layer{} {} */
-/*   FeedNet(float n) : next(n) { ref_map([&](float &f) { f = n; }, layer); } */
-/*   FeedNet(const FeedNet &feed) : layer(feed.layer), next(feed.next) {} */
-/* }; */
-  
-/* /\* Base class *\/ */
-/* template<size_t N> */
-/* struct FeedNet< intC<N> > : public FeedNet_tag { */
-/*   typedef _void Next; */
-/*   typedef std::array<float,N> Layer; */
-/*   typedef Layer Output; */
-
-/*   _void next; */
-/*   Layer layer; */
-
-/*   Output& output_layer() { return layer; } */
-
-/*   FeedNet() : layer{} {} */
-/*   FeedNet(float n) { ref_map([&](float &f) { f = n; }, layer); } */
-/* }; */
-
-/**************************/
-/*  _   _ _   _      _    */
-/* | \ | | \ | | ___| |_  */
-/* |  \| |  \| |/ _ \ __| */
-/* | |\  | |\  |  __/ |_  */
-/* |_| \_|_| \_|\___|\__| */
-/**************************/
 /**
  * An N layer neural network where each layer is a std::array of arbitrary (> 1) size.
  * 
@@ -183,9 +93,11 @@ struct FeedNet< _void > : public _void {};
  */
 struct NNet_tag : public TagBase { typedef NNet_tag tag; };
 
-template<class NN>
+template<class GenNN>
 class NNet : public NNet_tag {
+  typedef typename GenNN::type NN;
 public:
+
   typedef NNet<NN> type;
   typedef FeedNet< NN > Feed;
   static const size_t depth = NN::depth;
@@ -272,7 +184,15 @@ namespace recurrence_detail {
   /* |_|  |_\__,_| .__/____\__,_|\_, \___|_| /__/ */
   /*             |_|             |__/             */
   /************************************************/
-  template<class LayerFn, class NetType, size_t Offset = 0, size_t D = NetType::depth - Offset>
+  /**
+   * Takes a struct which applies a templated functin to each layer of some input NNet[s] and/or Feed[s]
+   *
+   * Default behavior is to apply to each row _expect for the last_ so that the function applied by LayerFn can
+   * use layer.next and get valid results.
+   * 
+   * Use the Offset template parameter to change this behavious; 1 to iterate over the last layer, -1 to leave off the last two layers, -2 to leave off the last three etc.
+   */
+  template<class LayerFn, class NetType, long int Offset = 0, size_t D = NetType::depth + Offset>
   struct MapLayers {
     template<class ... Aux>
     static void map(Aux&& ... aux) {
@@ -284,7 +204,7 @@ namespace recurrence_detail {
     }
   };
 
-  template<class LayerFn, class T, size_t Offset>
+  template<class LayerFn, class T, long int Offset>
   struct MapLayers<LayerFn, T, Offset, 0> {
     template<class ... Aux> static void map(Aux...) { }
   };
@@ -448,7 +368,7 @@ std::ostream& print_feed(Feed& feed, std::ostream &out) {
   static_assert( is_same<FeedNet_tag, typename Feed::tag>::value
 		 , "print_feed only works for a FeedNet");
 
-  MapLayers<MapFeedLayers, Feed
+  MapLayers<MapFeedLayers, Feed, 1
 	     >::map([&](float ff)
 		    { cout << " " << ff; }
 		    , [&] () { cout << endl; }
@@ -526,5 +446,62 @@ typename Net::Feed& predict(Net& net, typename Net::Feed& feeds) {
 
   return feeds;
 }
+
+/*************************************************/
+/*     _                                    _    */
+/*    / \  _   _  __ _ _ __ ___   ___ _ __ | |_  */
+/*   / _ \| | | |/ _` | '_ ` _ \ / _ \ '_ \| __| */
+/*  / ___ \ |_| | (_| | | | | | |  __/ | | | |_  */
+/* /_/   \_\__,_|\__, |_| |_| |_|\___|_| |_|\__| */
+/*               |___/                           */
+/*************************************************/
+/* add a bias value to a feed vector */
+namespace recurrence_detail {
+  /* I don't want to increment the output layer, just the input and hidden. */
+  /* template<class NNs, class Rest> */
+  /* struct IncrementNums { */
+  /*   typedef ConsNums<NNs::value + 1, typename IncrementNums<Rest, typename Rest::Next>::type > type; */
+  /* }; */
+
+  /* template<class NNs> */
+  /* struct IncrementNums<NNs, _void> : public NNs {}; */
+  template<class NNs>
+  struct IncrementNums {
+    typedef ConsNums<NNs::value + 1, typename IncrementNums<typename NNs::Next>::type > type;
+  };
+
+  template<>
+  struct IncrementNums<_void> : public _void {};
+
+  struct AugCopy {
+    template<class LL_in, class LL_out>
+    static void apply(LL_in& in, LL_out& out) {
+      ref_map([](float &in_v, float &out_v) { out_v = in_v; }, in.layer, out.layer);
+      out.layer.back() = 1.0;
+    }};
+
+}
+
+template<class Feed>
+struct Augment {
+  typedef FeedNet<typename recurrence_detail::IncrementNums< typename  Feed::Dimention >::type
+		  > type;
+  
+  static type apply(Feed &input) {
+    using namespace recurrence_detail;
+    type augmented;
+    
+    MapLayers<AugCopy, Feed, 1>::map(input, augmented);
+    // augmented.output_layer() = input.output_layer();
+
+    std::cout << "***Augmented: \n";
+    print_feed(augmented) << std::endl;
+
+    std::cout << "      *Basis: \n";
+    print_feed(input) << std::endl;
+
+    return augmented;
+  }
+};
 
 #endif

@@ -18,19 +18,25 @@
 /*                              |_|    |___/               */
 /***********************************************************/
 namespace recurrence_detail {
-  struct RMap {
-    template<class Net>
-    static void apply(Net& net, typename Net::Feed &feed) {
+  struct BackPropagate {
+    template<class Net, class AugFeed>
+    static void apply(Net& net, AugFeed &feed) {
       using namespace std;
       static_assert( is_same<typename Net::tag, NNet_tag>::value
 		     , "RMap expects NNet as first argument.");
 
-      static_assert( tuple_size< typename Net::Feed::Layer >::value + 1
+      static_assert( tuple_size< typename AugFeed::Layer >::value
 		     == tuple_size<typename Net::Layer::value_type >::value
 		     , "back_propigation: network/feed mismatch" );
 
+      cout << "Backpropigating on network: \n";
+      print_network(net) << endl;
+
       /* map every node with the feed[+1] layer, output to the feed[+0] layer */
       typename Net::NodeInput accumulate{};
+
+      cout << "Feed: \n";
+      print_feed(feed) << endl;
 
       /* For each node, compute the per-weight error of its inputs*/
       ref_map([&](decltype(net.layer.back()) &node
@@ -41,17 +47,34 @@ namespace recurrence_detail {
 	      }, net.layer
 	      , feed.next.layer);
 
+      cout << "should be my d_2 prefix:\n";
+      print_array(accumulate) << endl;
+
       /* gets store d(n) for use by the enclosing recurance */
-      ref_map([&](float &activation, float weighted_err) {
-	  activation = weighted_err * (activation * (1 - activation)); 
+      cout << "should be my d_2 suffix input:\n";
+      print_array(feed.layer) << endl;
+
+
+      ref_map([&](typename Net::NodeInput& node, const float delta){
+	  ref_map([&](float &activation, float &nn) {
+	      nn = activation * delta;
+	    }, feed.layer, node);
+	}, net.layer, feed.next.layer);
+
+      feed.layer.back() = 0.7310585786300049;
+      Map<>::apply([&](float &activation) {
+	  activation = (activation * (1 - activation)); 
+	}, feed.layer);
+
+      cout << "should be my d_2 suffix:\n";
+      print_array(feed.layer) << endl;
+
+      Map<>::apply([&](float &activation, const float err_next) {
+	  activation = err_next * activation; 
 	}, feed.layer, accumulate);
 
-      ref_map([&](typename Net::NodeInput& node){
-	  ref_map([](float &activation, const float delta, float &nn) {
-	      nn = activation * delta;
-	    }, feed.layer, feed.next.layer, node);
-	  node.back() = accumulate.back() * 0.19661193324148185; 
-	}, net.layer);
+      cout << "should be my d_2:\n";
+      print_array(feed.layer) << endl;
 
       cout << "Theta: \n";
       ref_map([&](typename Net::NodeInput& node) {
@@ -63,9 +86,9 @@ namespace recurrence_detail {
     }};  }
 
 template<class Net, class Feeds>
-void back_propigate(Net& net, Feeds &feed) {
+void back_propagate(Net& net, Feeds &feed) {
   using namespace recurrence_detail;
-  RMapLayers<RMap, Net>::map( net, feed);
+  RMapLayers<BackPropagate, Net>::map( net, feed);
 }
 
 /******************************************************************/
@@ -102,9 +125,12 @@ auto cost_function(Net& net
 		 , "error function is expected to return bool (true if considered a label match)");
 
   typedef typename Net::Feed Feed;
+  typedef typename Augment<Feed>::type AugmentedFeed;
   Net dEdt, dEdt_cumulative;
 
-  Feed forward{} , back{};
+
+  Feed forward{}, back{}; 
+  AugmentedFeed augment;
 
   size_t m = training_lables.size();
   double J  = 0.0;
@@ -120,14 +146,18 @@ auto cost_function(Net& net
 
     ref_map([&](const float h, const float y, float &output_err) {
 	J -= error(h, y) ? log(h) : log(1 - h);
-	cout << "h: " << h << " y: " << y << " incremental cost : " <<  (error(h, y) ? log(h) : log(1 - h)) << endl;
+	// cout << "h: " << h << " y: " << y << " incremental cost : " <<  (error(h, y) ? log(h) : log(1 - h)) << endl;
 	output_err = h - y;
       }, forward.output_layer(), training_lables[i], back.output_layer());
 
-    /* cout << "Forward:"; */
-    /* print_feed(forward) << "\n"; */
+    augment = Augment<Feed>::apply(back);
+    /* cout << "Augmented feed-forward:"; */
+    /* print_feed(augment) << "\n"; */
 
-    back_propigate(dEdt, back);
+    /* cout << "Based on:"; */
+    /* print_feed(back) << "\n"; */
+
+    back_propagate(dEdt, augment);
 
     /* cout << "Back:"; */
     /* print_feed(back) << "\n"; */
@@ -141,7 +171,7 @@ auto cost_function(Net& net
       }, dEdt_cumulative, dEdt);
   }
 
-  J /= (double)m;
+  J /= m;
 
   map([&m](float &ff) { ff /= m; }, dEdt);
   // print_network(net, cout);
