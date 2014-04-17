@@ -17,7 +17,7 @@ int main() {
   using namespace std;
   using namespace recurrence_detail;
 
-  typedef NNet< intC<1>, intC<2>, intC<2> > Net;
+  typedef NNet< Nums<1, 2, 2> > Net;
 
   /* Specify the networks initial weights */
   Net net( array< array<float,2>, 2>{{ array<float,2>{{0.1, 0.2}}, array<float,2>{{0.3, 0.4}}}},
