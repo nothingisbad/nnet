@@ -1,7 +1,10 @@
-test_NNet
 *.txt
 make_dist
 test_1d
 test_simple
+test_simple2
+test_NNet
 test_GD
+test/test_load
+test/test_save
 \*scheme\*

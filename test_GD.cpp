@@ -10,6 +10,7 @@
 #include "gradient_decent.hpp"
 
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 #include <tuple>
 #include <algorithm>
@@ -28,26 +29,22 @@ void read_file(const std::string& name, data_type& D, int label) {
 }
 
 int main() {
-  using namespace std;
   std::random_device rd;
   std::mt19937 gen(rd());
 
-  typedef NNet< array<float,2>
-		, array<float,4>
-		, array<float,2> >
-    Net;
+  typedef NNet< Nums<2,5,4,2> > Net;
   typedef typename Net::Feed Feed;
 
   Net net{};
   Feed feed;
 
   permute(net, -0.12, 0.12);
+
   print_network(net, cout) << endl;
 
   data_type D;
-  vector< array<float,2> > train_X(100);
-  vector< array<float,2> > train_Y(100);
-  vector< array<float,2> > predictions(100);
+  vector< array<float,2> > train_X(150);
+  vector< array<float,2> > train_Y(150);
 
   /* read in my data */
   read_file("data1.txt", D, 0);
@@ -57,54 +54,25 @@ int main() {
 
   /* build a training set by randomly sampling from D */
   int n;
-  for(int i = 0; i < 100; ++i) {
+  for(size_t i = 0; i < train_X.size(); ++i) {
     n = dist(gen);
-    train_X[i] = array<float,2>{ { get<0>(D[n]), get<1>(D[n]) } };
-    train_Y[i] = ( get<2>(D[n]) > 0.5 ? array<float,2>{{1,0}} : array<float,2>{{0,1}}  );
+    train_X[i] = ( array<float,2>{ { get<0>(D[n]), get<1>(D[n]) } } );
+    train_Y[i] = ( (get<2>(D[n]) > 0.5 ? array<float,2>{{1,0}} : array<float,2>{{0,1}}) );
   }
 
-  for(int i = 0; i < 10; ++i) {
-    cout << "sample " << i << ": ("  << train_Y[i][0] << ", " << train_Y[i][1] << ")\n";
+  decltype(cost_function(net, train_X, train_Y, 0.2)) cost;
+  for(size_t i = 0; i < 1400; ++i) {
+    cost = cost_function(net, train_X, train_Y, 0.2);
+
+    if(i % 50 == 0)
+      cout << " " << setw(10) << get<1>(cost);
+
+    map([](float &nn, float &grad) {
+	nn -= grad;
+      }, net, get<0>(cost));
   }
 
-  /* just apply gradient decent a few times and see if the thing worked. */
-  auto error = [](float prediction , float label ) -> bool {
-    return label < 0.5 ?  (prediction < 0.5) : (prediction > 0.5);
-  };
-
-  for(int i = 0; i < 100; ++i) {
-
-    for(int p = 0; p < 100; ++p) {
-      feed.layer = train_X[p];
-      predict(net, feed);
-
-      predictions[p] = feed.output_layer();
-
-      if((p < 10) && (i == 99))
-	cout << "Predicted: (" << train_X[p][0] << ", " << train_X[p][1]
-	     << ") -> (" << predictions[p][0] << ", " << predictions[p][1] << ")\n"
-	     << "    labled: (" << train_Y[p][0] << ", " << train_Y[p][1] << ")\n";
-    }
-
-    auto cost = cost_function(net, train_Y, predictions, error, 0.5);
-    //cost = cost_function(net, train_X, train_Y, 1, error);
-
-
-    if(i < 3) {
-      cout << "* Old Gradient (cost " << get<1>(cost) << ")\n";
-      print_gradient(net,get<0>(cost)) << "\n";
-    }
-
-    apply_gradient(net, get<0>(cost), 0.003);
-
-    if(i < 3) {
-      cout << "** New Gradient\n";
-      print_gradient(net,get<0>(cost));
-    }
-  }
-
-  cout << "Gradient: ";
-  print_network(net,cout) << endl;
+  cout << "\nFinal cost " << get<1>(cost) << "\n";
 
   fstream file1, file2, file_error
     , file_null;
@@ -115,31 +83,28 @@ int main() {
 
   file_null.open("/dev/null", fstream::out);
 
-  for(size_t i = 0; i < D.size(); ++i) {
-    feed.layer = train_X[i];
-
+  for(auto dd : D) {
+    feed.layer = array<float,2>{{get<0>(dd), get<1>(dd)}};
     predict(net, feed);
-
-    /* print info for the first and last 10 items */
-    if(( i++ < 10) || (i > (D.size() - 10))) 
-      cout << "label: " << train_Y[i][0] << " predicted: (" << feed.output_layer()[0] << ", " << feed.output_layer()[1] << ")\n";
-
     auto p0 = feed.output_layer()[0]
       , p1 = feed.output_layer()[1];
 
+    /* print info for the first and last 10 items */
+    // cout << "label: " << get<2>(dd) << " predicted: (" << p0 << ", " << p1 << ")\n";
+
+
     auto output = [&](std::ostream &file) {
-      file_null << train_X[i][0] << " " << train_X[i][1] << "\n";
+      file << get<0>(dd) << " " << get<1>(dd) << "\n";
     };
 
-    if(((p0 > 0.5) && (p1 > 0.5)) || ((p0 < 0.5) && (p1 < 0.5))) {
+    if(((p0 > 0.5) && (p1 > 0.5)) || ((p0 < 0.5) && (p1 < 0.5)))
       output(file_error);
 
-    }
-    else if(feed.output_layer()[0] > 0.5) {
+    else if(feed.output_layer()[0] > 0.5)
       output(file1);
-    } else {
+
+    else
       output(file2);
-    }
   }
 
   return 0;

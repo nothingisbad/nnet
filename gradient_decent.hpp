@@ -29,60 +29,28 @@ namespace recurrence_detail {
 		     == tuple_size<typename Net::Layer::value_type >::value
 		     , "back_propigation: network/feed mismatch" );
 
-      cout << "Backpropigating on network: \n";
-      print_network(net) << endl;
-
       /* map every node with the feed[+1] layer, output to the feed[+0] layer */
       typename Net::NodeInput accumulate{};
 
-      cout << "Feed: \n";
-      print_feed(feed) << endl;
-
       /* For each node, compute the per-weight error of its inputs*/
-      ref_map([&](decltype(net.layer.back()) &node
+      map_array([&](decltype(net.layer.back()) &node
 		  , const float output_error) {
-		ref_map([&](float &acc, float &nn) {
+		map_array([&](float &acc, float &nn) {
 		    acc += nn * output_error;
 		  }, accumulate, node);
 	      }, net.layer
 	      , feed.next.layer);
 
-      cout << "should be my d_2 prefix:\n";
-      print_array(accumulate) << endl;
-
-      /* gets store d(n) for use by the enclosing recurance */
-      cout << "should be my d_2 suffix input:\n";
-      print_array(feed.layer) << endl;
-
-
-      ref_map([&](typename Net::NodeInput& node, const float delta){
-	  ref_map([&](float &activation, float &nn) {
+      map_array([&](typename Net::NodeInput& node, const float delta){
+	  map_array([&](float &activation, float &nn) {
 	      nn = activation * delta;
 	    }, feed.layer, node);
 	}, net.layer, feed.next.layer);
 
       feed.layer.back() = 0.7310585786300049;
-      Map<>::apply([&](float &activation) {
-	  activation = (activation * (1 - activation)); 
-	}, feed.layer);
-
-      cout << "should be my d_2 suffix:\n";
-      print_array(feed.layer) << endl;
-
       Map<>::apply([&](float &activation, const float err_next) {
-	  activation = err_next * activation; 
+	  activation = err_next * (activation * (1 - activation)); 
 	}, feed.layer, accumulate);
-
-      cout << "should be my d_2:\n";
-      print_array(feed.layer) << endl;
-
-      cout << "Theta: \n";
-      ref_map([&](typename Net::NodeInput& node) {
-	  ref_map([&](float nn) {
-	      cout << " " << nn;
-	    }, node);
-	  cout << "\n";
-	}, net.layer);
     }};  }
 
 template<class Net, class Feeds>
@@ -103,26 +71,31 @@ namespace recurrence_detail {
   struct RegMap {
     template<class Net>
     static void apply(float &reg, Net &net) {
-      ref_map([&](typename Net::NodeInput &inputs) {
-	  Map<0,-1>::apply( [&](float ff) {
-	      // std::cout << "  ff: " << ff << std::endl;
-	      reg += ff * ff;
-	    }, inputs);
+      map_array([&](typename Net::NodeInput &inputs) {
+	  Map<0,-1>::apply( [&](float ff) { reg += ff * ff; }, inputs);
 	}, net.layer);
-    }}; }
+    }};
 
-template<class Net, class ErrorFn>
-auto cost_function(Net& net
+  struct AverageGrad {
+    template<class Net>
+    static void apply(Net &grad, Net &theta, float lambda, float m) {
+      map_array([&](typename Net::NodeInput& grad_node, typename Net::NodeInput& theta_node) {
+	  Map<0,-1>::apply( [&](float &gg, float &tt) {
+	      gg = (gg + tt * lambda) / m;
+	    }, grad_node, theta_node);
+	  grad_node.back() = grad_node.back() / m; /* bias */
+	}, grad.layer, theta.layer);
+    }};
+}
+
+template<class Net>
+auto cost_function(Net net
 		   , const std::vector< typename Net::Feed::Layer >& training_data
 		    , const std::vector< typename Net::Output >& training_lables
-		    , ErrorFn error
 		    , float regularization_constant
-		   ) -> std::tuple<Net, float>{
+		   ) -> std::tuple<Net, float> {
   using namespace recurrence_detail;
   using namespace std;
-
-  static_assert( is_same<bool, decltype(error(1.0f,1.0f))>::value
-		 , "error function is expected to return bool (true if considered a label match)");
 
   typedef typename Net::Feed Feed;
   typedef typename Augment<Feed>::type AugmentedFeed;
@@ -136,57 +109,40 @@ auto cost_function(Net& net
   double J  = 0.0;
 
   for(size_t i = 0; i < m; ++i) {
-    dEdt = net;
-
     // cout <<"Trainging Y: " << training_lables[i][0] << endl;
     forward.layer = training_data[i];
     predict(net,forward);
     back = forward;
 
-
-    ref_map([&](const float h, const float y, float &output_err) {
-	J -= error(h, y) ? log(h) : log(1 - h);
-	// cout << "h: " << h << " y: " << y << " incremental cost : " <<  (error(h, y) ? log(h) : log(1 - h)) << endl;
+    map_array([&](const float h, const float y, float &output_err) {
+	J -= y * log(h) + (1 - y) * log(1 - h);
 	output_err = h - y;
       }, forward.output_layer(), training_lables[i], back.output_layer());
 
     augment = Augment<Feed>::apply(back);
-    /* cout << "Augmented feed-forward:"; */
-    /* print_feed(augment) << "\n"; */
 
-    /* cout << "Based on:"; */
-    /* print_feed(back) << "\n"; */
-
+    dEdt = net;
     back_propagate(dEdt, augment);
 
-    /* cout << "Back:"; */
-    /* print_feed(back) << "\n"; */
-
-    /* cout << "Back Grad:\n"; */
-    /* print_network(dEdt) << "\n"; */
-
     /* accumulate the gradient for each training example */
-    map([](float &aa, float &bb) {
-	aa += bb;
+    map_network([](float &cume, const float example) { cume += example;
       }, dEdt_cumulative, dEdt);
   }
 
   J /= m;
 
-  map([&m](float &ff) { ff /= m; }, dEdt);
-  // print_network(net, cout);
+   // print_network(net, cout);
 
   /* recularize the cost */
   float reg = 0;
   /* should get  me the sum-squared of the weight coefficients */
   MapLayers< RegMap, Net >::map(reg, net);
+  reg *= regularization_constant / (2 * m);
 
   J += reg;
 
   /* take the mean regularized gradient */
-  map([&](float &grad, float &theta) {
-      grad = (grad + theta * regularization_constant) / m;
-    }, dEdt_cumulative, net);
+  MapLayers<AverageGrad,Net>::map(dEdt_cumulative, net, regularization_constant, m);
 
   return make_tuple(dEdt_cumulative, J);
 }
@@ -198,10 +154,10 @@ namespace recurrence_detail {
     static void apply(Net& net, Feed &feed) {
       using namespace std;
 
-      ref_map( [&]( decltype( net.layer.back() )& node
+      map_array( [&]( decltype( net.layer.back() )& node
 		    , float weighted_error ) {
 		 std::cout << "(W " << weighted_error << ")";
-		 ref_map([&](float &nn) { std::cout << " " << nn; }, node);
+		 map_array([&](float &nn) { std::cout << " " << nn; }, node);
 		 std::cout << std::endl;
 	       }, net.layer, feed.next.layer);
       cout << "*** Layer ***" << endl;
@@ -215,7 +171,7 @@ std::ostream& print_gradient(Net& net, typename Net::Feed& grad) {
 
   MapLayers<PrintGradient, Net>::map(net,grad);
   cout << "(W";
-  ref_map([&](float ff) { cout << " " << ff;}, grad.output_layer());
+  map_array([&](float ff) { cout << " " << ff;}, grad.output_layer());
   cout << ")";
   return std::cout;
 }

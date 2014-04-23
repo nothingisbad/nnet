@@ -32,10 +32,7 @@ int main() {
   std::random_device rd;
   std::mt19937 gen(rd());
 
-  typedef NNet< array<float,1>
-		, array<float,6>
-		, array<float,1> >
-    Net;
+  typedef NNet< Nums<1,6,1> > Net;
   typedef typename Net::Feed Feed;
 
   Net net{};
@@ -59,22 +56,17 @@ int main() {
     train_Y[i] = array<float,1>{{ (float)((n > 0.5) ? 1.0 : 0.0) }};
   }
 
-  /* for(int i = 0; i < 10; ++i) { */
-  /*   cout << "sample " << i << ": ("  << train_X[i][0] << ", " << train_Y[i][0] << ")\n"; */
-  /* } */
 
   /* just apply gradient decent a few times and see if the thing worked. */
   auto error = [](float prediction , float label ) -> bool {
-    return label < 0.5 ?  (prediction < 0.5) : (prediction > 0.5);
+    return label > 0.5 ?  (prediction > 0.5) : (prediction < 0.5);
   };
 
-  /* cout << "Initial Network: "; */
-  /* print_network(net,cout) << "\n\n"; */
 
   float old_cost = train_X.size();
   for(int i = 0; i < 100; ++i) {
 
-    auto cost = cost_function(net, train_X, train_Y, error, 0.5);
+    auto cost = cost_function(net, train_X, train_Y, 0.5);
 
     //cout << "* cost: " << get<1>(cost) << endl;;
     if(old_cost <= get<1>(cost)) {
@@ -113,7 +105,8 @@ int main() {
 
     /* print info for the first and last 10 items */
     if((i < 10) || (i > (D.size() - 10))) 
-      cout << "label: " << train_Y[i][0] << " predicted: (" << train_X[i][0] <<  ") -> (" << feed.output_layer()[0] << ")\n";
+      cout << "label: " << train_Y[i][0] << " predicted: " << error(feed.output_layer()[0], train_Y[i][0])
+	   << " : " << train_X[i][0] <<  ") -> (" << feed.output_layer()[0] << ")\n";
 
     auto p0 = feed.output_layer()[0]
       , p1 = feed.output_layer()[1];

@@ -31,13 +31,14 @@ int main() {
 
   feed.layer = array<float,1>{{0}};
 
-  auto error = [](float hyp, float lable) -> bool { return lable > 0.5 ? hyp > 0.5 : hyp < 0.5; };
-
   auto mk_input = [](float ff) -> array<float,1> { return array<float,1>{{ff}}; };
   vector< typename Net::Feed::Layer > X;
   vector< typename Net::Output > Y;
   X.push_back(mk_input(0));		/* input 1*/
   Y.push_back(array<float,2>{{1.0, 0.0}});
+
+  X.push_back(mk_input(1));
+  Y.push_back(array<float,2>{{0.0, 1.0}});
 
   cout << "Training label: ";
   print_array(Y[0]) << endl;
@@ -55,9 +56,9 @@ int main() {
   print_feed(feed) << endl;
   
   /* get the cost/gradient */
-  auto cost = cost_function(net, X, Y, error, 1);
+  auto cost = cost_function(net, X, Y, 1);
 
-  cout << "Cost: " << get<1>(cost) << " (" << 3.4220 << ")\n";
+  cout << "Cost: " << get<1>(cost) << " (" << 2.5764 << ")\n";
 
   cout << "Network: \n";
   print_network(net, cout) << "\n";
@@ -65,8 +66,8 @@ int main() {
   cout << "Gradient: " << endl;
 
   /* print out the inputs and corrosponding gradient I've just computed, with the 'known good' values in the next column to their right  */
-  auto octave_gradient = array<float, 10>{{0.10000, 0.14816, 0.30000, 0.15992, 0.38537, 0.47519
-					   , -0.2084, 1.28305, 1.42597, 0.87854}};
+  auto octave_gradient = array<float, 10>{{0.08786, 0.11195, 0.19196, 0.12192, 0.42255, 0.50497
+					   , 0.29591, 0.60908, 0.67525, 0.38279}};
 
   int i = 0;
   map_network([&](float input, float mine) {
