@@ -18,8 +18,6 @@
 
 #include "./utility.hpp"
 
-
-
 template<class T>
 struct GetOutput { typedef typename T::Output type; };
 
@@ -71,7 +69,7 @@ struct FeedNet : public FeedNet_tag {
   }
 
   FeedNet() : layer{} {}
-  FeedNet(float n) : next(n) { ref_map([&](float &f) { f = n; }, layer); }
+  FeedNet(float n) : next(n) { map_array([&](float &f) { f = n; }, layer); }
   FeedNet(const FeedNet &feed) : layer(feed.layer), next(feed.next) {}
 };
   
@@ -100,7 +98,9 @@ public:
 
   typedef NNet<NN> type;
   typedef FeedNet< NN > Feed;
+
   static const size_t depth = NN::depth;
+
   typedef typename NNet<typename NN::Next>::type Next;
 
   typedef typename std::conditional< IsVoid<Next>::value
@@ -266,14 +266,14 @@ namespace recurrence_detail {
   struct MapFeed {
     template<class Fn, class Feed, class ... Rest>
     static void apply(Fn fn, Feed &feed, Rest& ... rest) {
-      ref_map(fn, feed.layer, rest.layer...);
+      map_array(fn, feed.layer, rest.layer...);
     }};
 
   struct MapFeedLayers {
     template<class Fn, class LayerFn, class Feed>
     static void apply(Fn fn, LayerFn layer_fn, Feed &feed) {
       layer_fn();
-      array_fold(fn, feed.layer);
+      map_array(fn, feed.layer);
     }};
 
   /*********************************************************************/
@@ -286,8 +286,8 @@ namespace recurrence_detail {
   struct MapWeight {
     template<class Fn, class ... Nets>
     static void apply(Fn fn, Nets& ... rest) {
-      ::ref_map( [&](decltype(rest.layer[0])& ... weights) {
-	  ::ref_map(fn, weights...);
+      map_array( [&](decltype(rest.layer[0])& ... weights) {
+	  map_array(fn, weights...);
 	}, rest.layer ...);
     }};
 
@@ -296,7 +296,7 @@ namespace recurrence_detail {
     static void apply(Fn fn, LayerFn layer_fn, Nets& ... net) {
       layer_fn();
       array_fold( [&](decltype(net.layer[0])& ... weights) {
-	  ::ref_map(fn, weights...);
+	  ::map_array(fn, weights...);
 	}, net.layer...);
     }};
 }
@@ -307,24 +307,6 @@ namespace recurrence_detail {
 /* |   / -_) _| || | '_| '_/ -_) ' \/ _/ -_) */
 /* |_|_\___\__|\_,_|_| |_| \___|_||_\__\___| */
 /*********************************************/
-template<class Fn, class Net>
-void fold(const Fn fn, const Net& net) {
-  using namespace recurrence_detail;
-  MapLayers<FoldEveryWeight, Net>::map(fn, const_cast<Net&>(net));
-}
-
-template<class Fn, class LayerFn, class Net>
-void fold(Fn fn, LayerFn layer_fn, Net& net) {
-  using namespace recurrence_detail;
-  MapLayers<FoldEveryWeight, Net>::map(fn, layer_fn, net);
-}
-
-template<class Fn, class NodeFn, class LayerFn, class Net>
-void fold(Fn fn, NodeFn node_fn, LayerFn layer_fn, Net& net) {
-  using namespace recurrence_detail;
-  MapLayers<FoldEveryWeight, Net>::map(fn, node_fn, layer_fn, net);
-}
-
 template<class Fn, class Net, class ... Rest>
 void map(Fn fn, Net& net, Rest& ... rest) {
   using namespace recurrence_detail;
@@ -335,30 +317,42 @@ void map_feed(Fn fn, Feed &feed, Rest& ... rest) {
   using namespace recurrence_detail;
   MapLayers<MapFeed, Feed>::map(fn, feed, rest...); }
 
-
-
 /**
  * Prints the networks weights for each layer
  * @tparam Net:
  * @return: 
  */
+namespace recurrence_detail {
+  struct PrintNet {
+    template<class Net>
+    static void apply(Net &net, std::ostream &out) {
+      using namespace std;
+      map_array( [&](typename Net::NodeInput& node) {
+	  cout << "(" << node[0];
+	  Map<1,0>::apply([&](const float nn) {
+	      out << ", " << nn;
+	    }, node);
+	  cout << ")";
+	}, net.layer);
+      cout << "\n";
+    }}; }
+
 template<class Net>
 std::ostream& print_network(Net& net, std::ostream &out) {
+  using namespace recurrence_detail;
   using namespace std;
+
   static_assert( std::is_same<NNet_tag, typename Net::tag>::value
 		 , "print_network only works for NNet");
 
-  out << "(l";
-  fold([&](float f) { out << " " << f; }
-      , [&]() { out << ") (n"; }
-      , [&]() { out << ")\n(l"; }
-      , net);
-  out << ")";
-
+  MapLayers<PrintNet, Net>::map(net, ref(out) );
   return out;
 }
+
 template<class Net>
-std::ostream& print_network(Net& net) {  return print_network(net, std::cout); }
+std::ostream& print_network(Net& net) {
+  return print_network(net, std::cout);
+}
 
 template<class Feed>
 std::ostream& print_feed(Feed& feed, std::ostream &out) {
@@ -379,18 +373,23 @@ template<class Feed>
 std::ostream& print_feed(Feed& feed) { return print_feed(feed, std::cout); }
 
 
+/* dead simple, assumes the input is a white space seperated list of node weights.
+   No dimention checking or anything is done, just tries to slurp them in. */
 template<class Net>
-std::istream& read_layer(Net& net, std::istream &in) {
+std::istream& read_net(Net& net, std::istream &in) {
   using namespace std;
-  net.map([&](float& f) {
-      char c = in.peek();
-      while( !(c == '-' || (c > '0' && c < '9')) ) {
-	in.ignore();
-	c = in.peek();
-      }
+  map([&](float& f) {
       in >> f;
-    });
+    }, net);
   return in;
+}
+
+/* dead simple output, puts each node out onto a stream as a float.
+   Should be compatible with read_net. */
+template<class Net>
+std::ostream& write_net(Net& net, std::ostream &out) {
+  map([&](float& f) { out << f << " "; }, net);
+  return out;
 }
 
 template<class Net>
@@ -424,10 +423,10 @@ namespace recurrence_detail {
       using namespace std;
       static_assert( tuple_size<typename Net::NodeInput>::value == tuple_size<typename Net::Feed::Layer>::value + 1
 		     , "PredictMap feed/net dimention mismatch.");
-      ref_map([&](typename Net::NodeInput& node
+      map_array([&](typename Net::NodeInput& node
 		  , float &dst) {
 		dst = 0.0;
-		ref_map( [&](float &nn, float &ff) {
+		map_array( [&](float &nn, float &ff) {
 		    /* map over all the non-bias inputs */
 		    dst += nn * ff;
 		  }, node
@@ -476,7 +475,7 @@ namespace recurrence_detail {
   struct AugCopy {
     template<class LL_in, class LL_out>
     static void apply(LL_in& in, LL_out& out) {
-      ref_map([](float &in_v, float &out_v) { out_v = in_v; }, in.layer, out.layer);
+      map_array([](float &in_v, float &out_v) { out_v = in_v; }, in.layer, out.layer);
       out.layer.back() = 1.0;
     }};
 
@@ -490,17 +489,13 @@ struct Augment {
   static type apply(Feed &input) {
     using namespace recurrence_detail;
     type augmented;
-    
     MapLayers<AugCopy, Feed, 1>::map(input, augmented);
-    // augmented.output_layer() = input.output_layer();
-
-    std::cout << "***Augmented: \n";
-    print_feed(augmented) << std::endl;
-
-    std::cout << "      *Basis: \n";
-    print_feed(input) << std::endl;
-
     return augmented;
+  }
+
+  static void apply(Feed &src, type &dst) {
+    using namespace recurrence_detail;
+    MapLayers<AugCopy, Feed, 1>::map(src, dst);
   }
 };
 

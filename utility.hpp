@@ -13,6 +13,7 @@
 #include <tuple>
 #include <algorithm>
 #include <iostream>
+#include <type_traits>
 
 template<class Num>
 Num sigmoid(const Num& input) {
@@ -46,13 +47,13 @@ struct Map {
 };
 
 template<class FN, class T, class ... Aux>
-void ref_map(FN fn , T& dst, Aux& ... aux) { Map<>::apply(fn,dst,aux...); }
+void map_array(FN fn , T& dst, Aux& ... aux) { Map<>::apply(fn,dst,aux...); }
 
-template<class FN, class T>
-void array_fold(FN fn, T src) {
-  for(size_t i = 0; i < std::tuple_size< T >::value; ++i)
-    fn(src[i]);
-}
+/* template<class FN, class T> */
+/* void array_fold(FN fn, T src) { */
+/*   for(size_t i = 0; i < std::tuple_size< T >::value; ++i) */
+/*     fn(src[i]); */
+/* } */
 
 template<class A>
 std::ostream& print_array(const A& aa, std::ostream& out) {
