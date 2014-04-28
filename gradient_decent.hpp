@@ -93,12 +93,13 @@ auto cost_function(Net net
 		   , const std::vector< typename Net::Feed::Layer >& training_data
 		    , const std::vector< typename Net::Output >& training_lables
 		    , float regularization_constant
-		   ) -> std::tuple<Net, float> {
+		   ) -> std::tuple<Net, typename NumType<Net>::type> {
   using namespace recurrence_detail;
   using namespace std;
 
   typedef typename Net::Feed Feed;
   typedef typename Augment<Feed>::type AugmentedFeed;
+  typedef typename NumType<Net>::type Num;
   Net dEdt, dEdt_cumulative;
 
 
@@ -114,8 +115,8 @@ auto cost_function(Net net
     predict(net,forward);
     back = forward;
 
-    map_array([&](const float h, const float y, float &output_err) {
-	J -= y * log(h) + (1 - y) * log(1 - h);
+    map_array([&](const Num h, const Num y, Num &output_err) {
+	J += -y * log(h) - (1 - y) * log(1 - h);
 	output_err = h - y;
       }, forward.output_layer(), training_lables[i], back.output_layer());
 
@@ -125,7 +126,7 @@ auto cost_function(Net net
     back_propagate(dEdt, augment);
 
     /* accumulate the gradient for each training example */
-    map([](float &cume, const float example) { cume += example;
+    map_network([](Num &cume, const Num example) { cume += example;
       }, dEdt_cumulative, dEdt);
   }
 
@@ -134,7 +135,7 @@ auto cost_function(Net net
    // print_network(net, cout);
 
   /* recularize the cost */
-  float reg = 0;
+  Num reg = 0;
   /* should get  me the sum-squared of the weight coefficients */
   MapLayers< RegMap, Net >::map(reg, net);
   reg *= regularization_constant / (2 * m);
@@ -153,11 +154,12 @@ namespace recurrence_detail {
     template<class Net, class Feed>
     static void apply(Net& net, Feed &feed) {
       using namespace std;
+      typedef typename NumType<Net>::type Num;
 
       map_array( [&]( decltype( net.layer.back() )& node
-		    , float weighted_error ) {
+		    , Num weighted_error ) {
 		 std::cout << "(W " << weighted_error << ")";
-		 map_array([&](float &nn) { std::cout << " " << nn; }, node);
+		 map_array([&](Num &nn) { std::cout << " " << nn; }, node);
 		 std::cout << std::endl;
 	       }, net.layer, feed.next.layer);
       cout << "*** Layer ***" << endl;
@@ -171,7 +173,7 @@ std::ostream& print_gradient(Net& net, typename Net::Feed& grad) {
 
   MapLayers<PrintGradient, Net>::map(net,grad);
   cout << "(W";
-  map_array([&](float ff) { cout << " " << ff;}, grad.output_layer());
+  map_array([&](typename Net::Num ff) { cout << " " << ff;}, grad.output_layer());
   cout << ")";
   return std::cout;
 }

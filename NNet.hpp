@@ -46,11 +46,13 @@ namespace detail {
     static typename Feed::Output& apply(_void , typename Feed::Layer &layer) { return layer; }};
 }
 
-template<class NN>
+template<class NN, class Numeric = float>
 struct FeedNet : public FeedNet_tag {
+  typedef Numeric Num;
+
   typedef FeedNet<NN> type;
   typedef typename FeedNet< typename NN::Next >::type Next;
-  typedef std::array<float, NN::value > Layer;
+  typedef std::array<Num, NN::value > Layer;
 
   typedef NN Dimention;
   const static size_t depth = NN::depth;
@@ -69,13 +71,15 @@ struct FeedNet : public FeedNet_tag {
   }
 
   FeedNet() : layer{} {}
-  FeedNet(float n) : next(n) { map_array([&](float &f) { f = n; }, layer); }
+  FeedNet(Num n) : next(n) { map_array([&](Num &f) { f = n; }, layer); }
   FeedNet(const FeedNet &feed) : layer(feed.layer), next(feed.next) {}
 };
   
 /* Base class */
-template<>
-struct FeedNet< _void > : public _void {};
+template<class Numeric>
+struct FeedNet< _void, Numeric> : public _void {
+  typedef Numeric Num;
+};
 
 /**************************/
 /*  _   _ _   _      _    */
@@ -87,15 +91,15 @@ struct FeedNet< _void > : public _void {};
 /**
  * An N layer neural network where each layer is a std::array of arbitrary (> 1) size.
  * 
- * @tparam Layers: an array of std::array<floating_type, size>
+ * @tparam Layers: an array of std::array<Numeric, size>
  */
 struct NNet_tag : public TagBase { typedef NNet_tag tag; };
 
-template<class GenNN>
+template<class GenNN, class Numeric = float>
 class NNet : public NNet_tag {
   typedef typename GenNN::type NN;
 public:
-
+  typedef Numeric Num;
   typedef NNet<NN> type;
   typedef FeedNet< NN > Feed;
 
@@ -104,7 +108,7 @@ public:
   typedef typename NNet<typename NN::Next>::type Next;
 
   typedef typename std::conditional< IsVoid<Next>::value
-				     , Identity< std::array<float, NN::value> >
+				     , Identity< std::array<Num, NN::value> >
 				     , GetInput<Next>
 				     >::type::type LayerOutput;
 
@@ -113,9 +117,9 @@ public:
 				     , std::enable_if<!IsVoid<Next>::value, GetOutput<Next> >
 				     >::type::type::type Output;
 
-  typedef std::array<float, NN::value> Input;
+  typedef std::array<Num, NN::value> Input;
 
-  typedef std::array<float, NN::value + 1> NodeInput;
+  typedef std::array<Num, NN::value + 1> NodeInput;
   typedef std::array<NodeInput, std::tuple_size< LayerOutput >::value > Layer;
 
   Next next;
@@ -128,11 +132,12 @@ public:
   NNet() : layer{} {}
 };
 
-/* template<class NN> */
-/*  NNet<NN>:: */
+template<class Numeric> class NNet< _void, Numeric > : public _void {
+  typedef Numeric Num;
+};
 
-/* base case.  I one layer NNet doesn't make sense */
-template<> class NNet< _void > : public _void {};
+template<class T>
+struct NumType : public Identity<typename T::Num> {};
 
 /*************************************************/
 /*  _____                 _   _                  */
@@ -193,16 +198,16 @@ namespace recurrence_detail {
    * Use the Offset template parameter to change this behavious; 1 to iterate over the last layer, -1 to leave off the last two layers, -2 to leave off the last three etc.
    */
   template<class LayerFn, class NetType, long int Offset = 0, size_t D = NetType::depth + Offset>
-  struct MapLayers {
-    template<class ... Aux>
-    static void map(Aux&& ... aux) {
-      LayerFn::apply(aux...);
-      /* Majestic... */
-      MapLayers<LayerFn, typename NetType::Next, 0, D - 1
-		 >::map( GetNext<typename std::remove_reference<Aux>::type
-			 >::apply( std::forward<typename std::remove_reference<Aux>::type >(aux) ) ...);
-    }
-  };
+    struct MapLayers {
+      template<class ... Aux>
+      static void map(Aux&& ... aux) {
+	LayerFn::apply(aux...);
+	/* Majestic... */
+	MapLayers<LayerFn, typename NetType::Next, 0, D - 1
+		  >::map( GetNext<typename std::remove_reference<Aux>::type
+			  >::apply( std::forward<typename std::remove_reference<Aux>::type >(aux) ) ...);
+      }
+    };
 
   template<class LayerFn, class T, long int Offset>
   struct MapLayers<LayerFn, T, Offset, 0> {
@@ -217,14 +222,14 @@ namespace recurrence_detail {
   /*                 |_|             |__/             */
   /****************************************************/
   template<class LayerFn, class NetType, size_t Offset = 0, size_t D = NetType::depth - Offset>
-  struct RMapLayers {
-    template<class ... Aux>
-    static void map(Aux&& ... aux) {
-      RMapLayers<LayerFn, typename NetType::Next, 0, D - 1
-		  >::map( GetNext<typename std::remove_reference<Aux>::type
-			  >::apply( std::forward<typename std::remove_reference<Aux>::type >(aux) ) ...);
-      LayerFn::apply(aux...);
-    }};
+    struct RMapLayers {
+      template<class ... Aux>
+      static void map(Aux&& ... aux) {
+	RMapLayers<LayerFn, typename NetType::Next, 0, D - 1
+		   >::map( GetNext<typename std::remove_reference<Aux>::type
+			   >::apply( std::forward<typename std::remove_reference<Aux>::type >(aux) ) ...);
+	LayerFn::apply(aux...);
+      }};
 
   template<class LayerFn, class T, size_t Offset>
   struct RMapLayers<LayerFn, T, Offset, 0> {
@@ -308,7 +313,7 @@ namespace recurrence_detail {
 /* |_|_\___\__|\_,_|_| |_| \___|_||_\__\___| */
 /*********************************************/
 template<class Fn, class Net, class ... Rest>
-void map(Fn fn, Net& net, Rest& ... rest) {
+void map_network(Fn fn, Net& net, Rest& ... rest) {
   using namespace recurrence_detail;
   MapLayers<MapWeight, Net>::map(fn, net, rest...); }
 
@@ -329,7 +334,7 @@ namespace recurrence_detail {
       using namespace std;
       map_array( [&](typename Net::NodeInput& node) {
 	  cout << "(" << node[0];
-	  Map<1,0>::apply([&](const float nn) {
+	  Map<1,0>::apply([&](const typename NumType<Net>::type nn) {
 	      out << ", " << nn;
 	    }, node);
 	  cout << ")";
@@ -363,7 +368,7 @@ std::ostream& print_feed(Feed& feed, std::ostream &out) {
 		 , "print_feed only works for a FeedNet");
 
   MapLayers<MapFeedLayers, Feed, 1
-	     >::map([&](float ff)
+	    >::map([&](NumType<Feed> ff)
 		    { cout << " " << ff; }
 		    , [&] () { cout << endl; }
 		    , feed);
@@ -378,7 +383,7 @@ std::ostream& print_feed(Feed& feed) { return print_feed(feed, std::cout); }
 template<class Net>
 std::istream& read_net(Net& net, std::istream &in) {
   using namespace std;
-  map([&](float& f) {
+  map_network([&](typename NumType<Net>::type& f) {
       in >> f;
     }, net);
   return in;
@@ -388,7 +393,7 @@ std::istream& read_net(Net& net, std::istream &in) {
    Should be compatible with read_net. */
 template<class Net>
 std::ostream& write_net(Net& net, std::ostream &out) {
-  map([&](float& f) { out << f << " "; }, net);
+  map([&](typename NumType<Net>::type& f) { out << f << " "; }, net);
   return out;
 }
 
@@ -396,14 +401,15 @@ template<class Net>
 void permute(Net &n, float low, float high) {
   using namespace std;
   using namespace recurrence_detail;
+  typedef typename NumType<Net>::type Num;
 
   random_device rd;
   mt19937 gen(rd());
 
-  uniform_real_distribution<float> dist(low, high);
+  uniform_real_distribution<> dist(low, high);
 
   MapLayers<MapWeight, Net
-	     >::map([&](float& f)  {
+	     >::map([&](Num& f)  {
 		 f += dist(gen);
 	       }, n);
 }
@@ -421,12 +427,14 @@ namespace recurrence_detail {
     template<class Net>
     static void apply(Net& net, typename Net::Feed& feed) {
       using namespace std;
+      typedef typename NumType<Net>::type Num;
+
       static_assert( tuple_size<typename Net::NodeInput>::value == tuple_size<typename Net::Feed::Layer>::value + 1
 		     , "PredictMap feed/net dimention mismatch.");
       map_array([&](typename Net::NodeInput& node
-		  , float &dst) {
+		  , Num &dst) {
 		dst = 0.0;
-		map_array( [&](float &nn, float &ff) {
+		map_array( [&](Num &nn, Num &ff) {
 		    /* map over all the non-bias inputs */
 		    dst += nn * ff;
 		  }, node
@@ -475,10 +483,11 @@ namespace recurrence_detail {
   struct AugCopy {
     template<class LL_in, class LL_out>
     static void apply(LL_in& in, LL_out& out) {
-      map_array([](float &in_v, float &out_v) { out_v = in_v; }, in.layer, out.layer);
+      typedef typename NumType<LL_in>::type Num;
+
+      map_array([](Num &in_v, Num &out_v) { out_v = in_v; }, in.layer, out.layer);
       out.layer.back() = 1.0;
     }};
-
 }
 
 template<class Feed>

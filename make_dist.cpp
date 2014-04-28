@@ -10,8 +10,19 @@
 #include <random>
 #include <fstream>
 
+using namespace std;
+
+void make_dist(size_t num_samples
+	       , mt19937 &gen
+	       , normal_distribution<> dist_x
+	       , normal_distribution<> dist_y
+	       , ostream &file) {
+
+  for(size_t i = 0; i < num_samples; ++i)
+    file << dist_x(gen) << " " << dist_y(gen) << "\n";
+}
+
 int main() {
-  using namespace std;
   random_device rd;
   mt19937 gen;
 
@@ -20,21 +31,20 @@ int main() {
   out1.open("data1.txt", std::fstream::out);
   out2.open("data2.txt", std::fstream::out);
 
-  int samples = 200;
+  make_dist(100, gen
+	    , normal_distribution<>(-1,1), normal_distribution<>(2,8)
+	    , out1);
 
-  normal_distribution<>
-    dst_x1(-2,1), dst_y1(2,8)
-    , dst_x2(4,1), dst_y2(-4,3);
+  make_dist(100, gen
+	    , normal_distribution<>(1,3), normal_distribution<>(3,2)
+	    , out1);
 
-  float rot_x = sin(30),
-    rot_y = cos(30);
+  make_dist(100, gen
+  	    , normal_distribution<>(4,1), normal_distribution<>(-4, 3)
+  	    , out2);
 
+  make_dist(100, gen
+	    , normal_distribution<>(2,1.5), normal_distribution<>(-6, 1)
+	    , out2);
 
-  for(int i = 0; i < samples; ++i) {
-    out1 << dst_x1(gen) * rot_x << " " << dst_y1(gen) * rot_y  << "\n";
-  }
-
-  for(int i = 0; i < samples; ++i) {
-    out2 << dst_x2(gen) << " " << dst_y2(gen) << "\n";
-  }
 }

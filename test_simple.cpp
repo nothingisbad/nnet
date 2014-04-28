@@ -69,12 +69,12 @@ int main() {
 					   , -0.2084, 1.28305, 1.42597, 0.87854}};
 
   int i = 0;
-  map([&](float input, float mine) {
+  map_network([&](float input, float mine) {
       cout << setw(5) << input << " -> "<<  setw(10) << mine << "  " << octave_gradient[i++] << endl;
     }, net, get<0>(cost) );
 
   cout << "Output network: \n";
-  map([](float &net, float &grad) { net += grad; }, net, get<0>(cost));
+  map_network([](float &net, float &grad) { net += grad; }, net, get<0>(cost));
   print_network(net, cout) << "\n";
 
   return 0;

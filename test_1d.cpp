@@ -80,7 +80,7 @@ int main() {
     }
     old_cost = get<1>(cost);
 
-    map([&](float &nn, float &grad) {
+    map_network([&](float &nn, float &grad) {
     	nn -= grad;
       }, net, get<0>(cost));
 

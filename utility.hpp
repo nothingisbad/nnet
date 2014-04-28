@@ -1,5 +1,5 @@
-#ifndef UTILITY_HPP
-#define UTILITY_HPP
+#ifndef NNET_UTILITY_HPP
+#define NNET_UTILITY_HPP
 /**
  * @file /home/ryan/programming/nnet/utility.hpp
  * @author Ryan Domigan <ryan_domigan@sutdents@uml.edu>

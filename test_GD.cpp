@@ -67,7 +67,7 @@ int main() {
     if(i % 50 == 0)
       cout << " " << setw(10) << get<1>(cost);
 
-    map([](float &nn, float &grad) {
+    map_network([](float &nn, float &grad) {
 	nn -= grad;
       }, net, get<0>(cost));
   }
