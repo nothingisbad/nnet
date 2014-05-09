@@ -31,20 +31,20 @@ int main() {
   out1.open("data1.txt", std::fstream::out);
   out2.open("data2.txt", std::fstream::out);
 
-  make_dist(100, gen
-	    , normal_distribution<>(-1,1), normal_distribution<>(2,8)
+  make_dist(400, gen
+	    , normal_distribution<>(-5,4), normal_distribution<>(-5,4)
 	    , out1);
 
-  make_dist(100, gen
-	    , normal_distribution<>(1,3), normal_distribution<>(3,2)
+  make_dist(400, gen
+	    , normal_distribution<>(5,4), normal_distribution<>(5,4)
 	    , out1);
 
-  make_dist(100, gen
-  	    , normal_distribution<>(4,1), normal_distribution<>(-4, 3)
+  make_dist(400, gen
+  	    , normal_distribution<>(-5,4), normal_distribution<>(5,4)
   	    , out2);
 
-  make_dist(100, gen
-	    , normal_distribution<>(2,1.5), normal_distribution<>(-6, 1)
+  make_dist(400, gen
+	    , normal_distribution<>(5,4), normal_distribution<>(-5,4)
 	    , out2);
 
 }

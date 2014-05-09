@@ -5,6 +5,10 @@ test_simple
 test_simple2
 test_NNet
 test_GD
-test/test_load
+test/make_sin
+test/make_xor
+test/*.txt
+test/test_regression
 test/test_save
+
 \*scheme\*

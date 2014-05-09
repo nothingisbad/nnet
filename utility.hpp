@@ -14,16 +14,46 @@
 #include <algorithm>
 #include <iostream>
 #include <type_traits>
+#include <utility>
 
 template<class Num>
-Num sigmoid(const Num& input) {
-  static_assert( std::is_floating_point<Num>::value
-		 , "sigmoid only makes sense for floating point numbers");
-  /* speed up following example at http://msdn.microsoft.com/en-us/magazine/jj658979.aspx */
-  if(input < -45.0) return 0.0;
-  if(input > 45.0) return 1.0;
-  return 1.0 / (1.0 + exp(-input));
-}
+struct Sigmoid {
+  typedef Sigmoid<Num> type;
+
+  constexpr static Num apply(const Num& input) {
+    static_assert( std::is_floating_point<Num>::value
+		   , "sigmoid only makes sense for floating point numbers");
+    /* speed up following example at http://msdn.microsoft.com/en-us/magazine/jj658979.aspx */
+    //if(input < -45.0) return 0.0;
+    //if(input > 45.0) return 1.0;
+    return 1.0 / (1.0 + exp(-input));
+  }
+
+  /* the input has already had the function applied; caluculate the differntial given that */
+  constexpr static Num diff(const Num& vv, const Num & g_vv) {
+    return g_vv * (1 - g_vv);
+  }
+
+  constexpr static Num bias = 0.7310585786300049;
+};
+
+template<class Num, Num center, Num varience>
+struct Gaussian {
+  typedef Gaussian<Num,center,varience> type;
+
+  Num apply(const Num& vv) {
+    static_assert( std::is_floating_point<Num>::value
+		   , "Activation functions only makes sense for floating point numbers");
+    Num sqr = (vv - center)^2;
+    return exp( - (sqr / (2 * varience^2) ) );
+  }
+
+  /* the input has already had the function applied; caluculate the differntial given that */
+  Num diff(const Num& vv, const Num & g_vv) {
+    Num sqr = (vv - center)^2;
+    return (sqr / varience^2) * g_vv;
+  }
+};
 
 /**************************************/
 /*     _                              */
@@ -49,12 +79,6 @@ struct Map {
 template<class FN, class T, class ... Aux>
 void map_array(FN fn , T& dst, Aux& ... aux) { Map<>::apply(fn,dst,aux...); }
 
-/* template<class FN, class T> */
-/* void array_fold(FN fn, T src) { */
-/*   for(size_t i = 0; i < std::tuple_size< T >::value; ++i) */
-/*     fn(src[i]); */
-/* } */
-
 template<class A>
 std::ostream& print_array(const A& aa, std::ostream& out) {
   using namespace std;
@@ -66,8 +90,36 @@ std::ostream& print_array(const A& aa, std::ostream& out) {
   return cout << "]";
 }
 
+template<class T, size_t N>
+std::ostream& operator<<(const std::array<T, N>& aa, std::ostream& out) {
+  return print_array(aa, out);
+}
+
 template<class A>
 std::ostream& print_array(const A& aa) { return print_array(aa, std::cout); }
+
+/*****************************/
+/*  _____            _       */
+/* |_   _|   _ _ __ | | ___  */
+/*   | || | | | '_ \| |/ _ \ */
+/*   | || |_| | |_) | |  __/ */
+/*   |_| \__,_| .__/|_|\___| */
+/*            |_|            */
+/*****************************/
+template<class FN, class Tup, size_t elem = 0, size_t last = std::tuple_size<Tup>::value>
+struct MapTuple {
+  static void apply(Tup& tup) {
+    FN::apply( std::get<elem>(tup) );
+    MapTuple<FN,Tup,elem + 1, last>::apply(tup);
+  } };
+
+template<class FN, class Tup, size_t elem>
+struct MapTuple<FN, Tup, elem, elem> { static void apply(Tup&) {} };
+
+
+template<class FN, class Tup>
+void map_tuple(FN&&, Tup& tup) { MapTuple<FN, typename std::remove_reference<Tup>::type >::apply(tup); }
+
 
 /************************/
 /*  __  __ ____  _      */
@@ -78,7 +130,6 @@ std::ostream& print_array(const A& aa) { return print_array(aa, std::cout); }
 /************************/
 template<size_t N>
 struct intC : public std::integral_constant<size_t, N>::type {};
-
 
 /* Well, std library has some metaprogramming stuff now, but it's missing a lot. */
 struct _void {
@@ -97,13 +148,84 @@ struct IsVoid : std::false_type {};
 template<class T>
 struct IsVoid<T,_void> : std::true_type {};
 
-template<size_t ... Rest> struct Nums;
-
 namespace detail {
   template<class T> struct GetDepth : public intC<T::depth + 1>::type {};
 
   template<> struct GetDepth<_void> : public intC<0>::type {};
 }
+
+/**********************************/
+/*  __  __ ____  _     _     _    */
+/* |  \/  |  _ \| |   (_)___| |_  */
+/* | |\/| | |_) | |   | / __| __| */
+/* | |  | |  __/| |___| \__ \ |_  */
+/* |_|  |_|_|   |_____|_|___/\__| */
+/**********************************/
+/* meta-programming-list; a list of types which can be instantiated to make a sort of tuple.
+   Having said that; maybe I should generate a std::tuple and use the boost libs.  Well, I've already got this going;
+   so sticking with it for now
+   */
+struct MPList_tag { typedef MPList_tag tag_type; };
+
+template<class List> struct Car : public Identity<typename List::Car> {};
+template<> struct Car<_void> : public _void {};
+
+template<class List> struct Cdr : public Identity<typename List::Cdr> {};
+template<> struct Cdr<_void> : public _void {};
+
+template<class T, class Next>
+struct Cons : public MPList_tag {
+  typedef Cons<T, Next> type;
+
+  typedef T Car;
+  typedef Next Cdr;
+
+  /* I can use the instatiated list at run-time */
+  T value;
+  Next next;
+  
+  static const size_t depth = detail::GetDepth<Next>::value;
+};
+
+template<class ... List> struct MPList;
+
+template<class Head, class ... Tail>
+struct MPList<Head, Tail...> : public Cons<Head, typename MPList<Tail...>::type> {};
+
+template<> struct MPList<> : public _void {};
+
+template<class Fn, class Init, class InputList>
+struct Fold {
+  static_assert( std::is_same<typename InputList::type::tag_type, MPList_tag>::value
+		 , "Length requires an MPList or Cons cell.");
+  typedef typename InputList::type List;
+  typedef typename
+  Fn::template Apply<typename Car<List>::type
+		     , typename Fold<Fn, Init, typename Cdr<List>::type>::type
+		     > type;
+};
+
+template<class Fn, class Init>
+struct Fold<Fn,Init,_void> { typedef typename Init::type type; };
+
+template<class Flatten, class List>
+struct map_MPList {
+  template<class Fn>
+  void apply(Fn fn, List& ll) {
+    Flatten::apply(fn, ll);
+
+    map_MPList<Flatten, typename Cdr<List>::type
+	       >::apply(fn, ll.next);
+  }
+};
+
+
+template<class List>
+struct Length {
+  static_assert( std::is_same<typename List::tag_type, MPList_tag>::value
+		 , "Length requires an MPList or Cons cell.");
+  const static size_t value = List::depth;
+};
 
 template<size_t N, class NNs>
 struct ConsNums {
@@ -114,11 +236,88 @@ struct ConsNums {
   typedef ConsNums<N, NNs> type;
 };
 
+template<size_t ... Rest> struct Nums;
 
 template<size_t NN, size_t ... Rest>
 struct Nums<NN, Rest...> {
   typedef ConsNums<NN, typename Nums<Rest...>::type > type; };
 
 template<> struct Nums<> : public _void {};
+
+template<class List>
+struct LengthMPList : public intC<List::depth> {};
+
+/*********************************/
+/*  ____                         */
+/* |  _ \ __ _ _ __   __ _  ___  */
+/* | |_) / _` | '_ \ / _` |/ _ \ */
+/* |  _ < (_| | | | | (_| |  __/ */
+/* |_| \_\__,_|_| |_|\__, |\___| */
+/*                   |___/       */
+/*********************************/
+struct IncItr { template<class T> static void apply(T&& t) { ++t; } };
+
+template<class ... Types>
+struct RangeItr {
+  typedef std::tuple<Types ...> value_type;
+  value_type _itrs;
+
+  RangeItr( const Types& ... input ) : _itrs(input ...) {}
+
+  RangeItr& operator++() {
+    map_tuple(IncItr(), _itrs);
+    return *this;
+  }
+  value_type& operator*() { return _itrs; }
+
+  /* note: only compairs the _first_ element (so I can have ranges of different sizes; stick the shortest range in
+     the first position) */
+  bool operator!=(const RangeItr<Types...>& itr) {
+    return std::get<0>(itr._itrs) != std::get<0>(_itrs);
+  }
+};
+
+template<class ... Pairs>
+struct Range {
+  typedef RangeItr<typename Pairs::first_type ...> iterator_type;
+  RangeItr<typename Pairs::first_type ...> _begin, _end;
+
+  iterator_type& begin() { return _begin; }
+  iterator_type& end() { return _end; }
+  const iterator_type& begin() const { return _begin; }
+  const iterator_type& end() const { return _end; }
+
+  Range(const Pairs& ...  pp) : _begin(pp.first ...), _end(pp.second ...) {}
+
+  Range() = delete;
+  Range(const Range&) = default;
+  ~Range() = default;
+};
+
+template<class Pairs>
+struct Range<Pairs> {
+  typedef typename Pairs::first_type iterator;
+  iterator _begin, _end;
+
+  iterator& begin() { return _begin; }
+  iterator& end() { return _end; }
+  const iterator& begin() const { return _begin; }
+  const iterator& end() const { return _end; }
+
+  Range(const Pairs& pp) : _begin(pp.first), _end(pp.second) {}
+
+  Range() = delete;
+  Range(const Range&) = default;
+  ~Range() = default;
+};
+
+template<class ... PType>
+Range< PType ... > make_range(const PType& ... pairs) {
+  return Range< PType ... >( pairs ...);
+}
+
+template<class Collection>
+std::pair<typename Collection::iterator, typename Collection::iterator>
+coll_pair(Collection& cc) {  return std::make_pair(cc.begin(), cc.end()); }
 
 #endif

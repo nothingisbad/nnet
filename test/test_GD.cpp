@@ -3,11 +3,11 @@
  * @author Ryan Domigan <ryan_domigan@sutdents@uml.edu>
  * Created on Apr 06, 2014
  *
- * Test gradient decent
+ * Test gradient decent; trains on 150 points from the data1.txt and data2.txt then makes predictions for every point in the two sets.
  */
 
-#include "NNet.hpp"
-#include "gradient_decent.hpp"
+#include <nnet/NNet.hpp>
+#include <nnet/gradient_decent.hpp>
 
 #include <iostream>
 #include <iomanip>
@@ -15,7 +15,10 @@
 #include <tuple>
 #include <algorithm>
 
+#include <type_traits>
+
 using namespace std;
+using namespace nnet;
 
 typedef vector< tuple<float,float, int > > data_type;
 
@@ -35,12 +38,18 @@ int main() {
   typedef NNet< Nums<2,5,4,2> > Net;
   typedef typename Net::Feed Feed;
 
+  static_assert(std::is_standard_layout<typename Net::Layer>::value
+		, "array is not POD");
+
+  static_assert(std::is_standard_layout<Net>::value
+		, "Net is not POD");
+
   Net net{};
   Feed feed;
 
-  permute(net, -0.12, 0.12);
+  initialize(net, -0.12, 0.12);
 
-  print_network(net, cout) << endl;
+  // print_network(net, cout) << endl;
 
   data_type D;
   vector< array<float,2> > train_X(150);
@@ -60,12 +69,11 @@ int main() {
     train_Y[i] = ( (get<2>(D[n]) > 0.5 ? array<float,2>{{1,0}} : array<float,2>{{0,1}}) );
   }
 
-  decltype(cost_function(net, train_X, train_Y, 0.2)) cost;
+  decltype(cost_gradient(net, train_X, train_Y, 0.2)) cost;
   for(size_t i = 0; i < 1400; ++i) {
-    cost = cost_function(net, train_X, train_Y, 0.2);
+    cost = cost_gradient(net, train_X, train_Y, 0.2);
 
-    if(i % 50 == 0)
-      cout << " " << setw(10) << get<1>(cost);
+    // cout << "Cost: " << get<1>(cost) << endl;
 
     map_network([](float &nn, float &grad) {
 	nn -= grad;
@@ -84,13 +92,12 @@ int main() {
   file_null.open("/dev/null", fstream::out);
 
   for(auto dd : D) {
+    feed = Feed{};
     feed.layer = array<float,2>{{get<0>(dd), get<1>(dd)}};
+
     predict(net, feed);
     auto p0 = feed.output_layer()[0]
       , p1 = feed.output_layer()[1];
-
-    /* print info for the first and last 10 items */
-    // cout << "label: " << get<2>(dd) << " predicted: (" << p0 << ", " << p1 << ")\n";
 
 
     auto output = [&](std::ostream &file) {

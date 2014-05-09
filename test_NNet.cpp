@@ -44,7 +44,7 @@ int main() {
 
   cout << " (Forward fed: ";
   MapLayers<MapFeedLayers, Feed
-	     >::map( [&](float f) {
+	     >::apply( [&](float f) {
 		 cout << f << " ";
 	       } , [&]() {
 		 cout << endl;
@@ -59,7 +59,7 @@ int main() {
 
   cout << " (back propigated: ";
   MapLayers<MapFeedLayers, Feed
-	     >::map( [&](float f) {
+	     >::apply( [&](float f) {
 		 cout << f << " ";
 	       } , [&]() {
 		 cout << "\n  ";

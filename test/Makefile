@@ -1,13 +1,16 @@
+INCLUDE = -I../../
+
 CXX ?= g++
 #CXX = clang -lc++ 
 FLAGS := $(FLAGS) -Wall -ggdb -std=c++11 
 
-test_save: *.cpp ../*.hpp
-	$(CXX) $(FLAGS) -o $@ test_save.cpp
+TARGETS=test_NNet test_GD test_simple test_MetaNet make_sin test_regression make_xor test_1d
+$(TARGETS) : % : %.cpp ../*.hpp
+	$(CXX) $(FLAGS) $(INCLUDE) -o $@ $@.cpp 
 
-test_load: *.cpp ../*.hpp
-	$(CXX) $(FLAGS) -o $@ test_load.cpp
+learned-sin.txt: make_sin
+	./make_sin
 
-TARGETS=test_NNet test_GD test_simple
+CLEAN_TARGETS = $(TARGETS) learned-sin.txt noisy-sine.txt
 clean:
 	@for item in $(TARGETS); do { if [ -e $${item} ]; then rm $${item} ; echo -n "cleaning up "; echo $${item} ; fi }; done

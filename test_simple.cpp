@@ -15,7 +15,8 @@
 
 int main() {
   using namespace std;
-  using namespace recurrence_detail;
+  using namespace nnet;
+  using namespace nnet::recurrence_detail;
 
   typedef NNet< Nums<1, 2, 2> > Net;
 
@@ -30,8 +31,6 @@ int main() {
   Feed feed;
 
   feed.layer = array<float,1>{{0}};
-
-  auto error = [](float hyp, float lable) -> bool { return lable > 0.5 ? hyp > 0.5 : hyp < 0.5; };
 
   auto mk_input = [](float ff) -> array<float,1> { return array<float,1>{{ff}}; };
   vector< typename Net::Feed::Layer > X;
@@ -55,7 +54,7 @@ int main() {
   print_feed(feed) << endl;
   
   /* get the cost/gradient */
-  auto cost = cost_function(net, X, Y, error, 1);
+  auto cost = cost_gradient(net, X, Y, 1);
 
   cout << "Cost: " << get<1>(cost) << " (" << 3.4220 << ")\n";
 

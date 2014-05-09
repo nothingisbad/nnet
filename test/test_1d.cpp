@@ -6,8 +6,8 @@
  * One dimentional gradient decent test
  */
 
-#include "NNet.hpp"
-#include "gradient_decent.hpp"
+#include <nnet/NNet.hpp>
+#include <nnet/gradient_decent.hpp>
 
 #include <iostream>
 #include <fstream>
@@ -29,6 +29,8 @@ void read_file(const std::string& name, data_type& D, int label) {
 
 int main() {
   using namespace std;
+  using namespace nnet;
+
   std::random_device rd;
   std::mt19937 gen(rd());
 
@@ -38,7 +40,7 @@ int main() {
   Net net{};
   Feed feed;
 
-  permute(net, -0.12, 0.12);
+  initialize(net, -0.12, 0.12);
   print_network(net, cout) << endl;
 
   data_type D;
@@ -64,9 +66,9 @@ int main() {
 
 
   float old_cost = train_X.size();
-  for(int i = 0; i < 100; ++i) {
+  for(int i = 0; i < 200; ++i) {
 
-    auto cost = cost_function(net, train_X, train_Y, 0.5);
+    auto cost = cost_gradient(net, train_X, train_Y, 4);
 
     //cout << "* cost: " << get<1>(cost) << endl;;
     if(old_cost <= get<1>(cost)) {
