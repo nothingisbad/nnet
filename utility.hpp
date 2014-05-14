@@ -16,6 +16,17 @@
 #include <type_traits>
 #include <utility>
 
+template<long Numerator, long Denominator, class Numeric = double>
+struct rational_c {
+
+  template<class NewNumeric>
+  struct change_value_type { typedef rational_c<Numerator, Denominator, NewNumeric> type; };
+  
+  typedef Numeric Num;
+  constexpr static Num value = (Num)Numerator / (Num)Denominator;
+  constexpr static Num value_squared = value * value;
+};
+
 template<class Num>
 struct Sigmoid {
   typedef Sigmoid<Num> type;
@@ -30,28 +41,31 @@ struct Sigmoid {
   }
 
   /* the input has already had the function applied; caluculate the differntial given that */
-  constexpr static Num diff(const Num& vv, const Num & g_vv) {
+  constexpr static Num diff(const Num & g_vv) {
     return g_vv * (1 - g_vv);
   }
 
   constexpr static Num bias = 0.7310585786300049;
 };
 
-template<class Num, Num center, Num varience>
+template<class Num, class InputMean, class InputVarience>
 struct Gaussian {
-  typedef Gaussian<Num,center,varience> type;
+  typedef typename InputMean::template change_value_type<Num>::type Mean;
+  typedef typename InputVarience::template change_value_type<Num>::type Varience;
+
+  typedef Gaussian<Num, Mean, Varience> type;
 
   Num apply(const Num& vv) {
     static_assert( std::is_floating_point<Num>::value
 		   , "Activation functions only makes sense for floating point numbers");
-    Num sqr = (vv - center)^2;
-    return exp( - (sqr / (2 * varience^2) ) );
+    Num sqr = (vv - Mean::value);
+    return exp( - ( (sqr * sqr) / (2 * Varience::value_squared) ) );
   }
 
-  /* the input has already had the function applied; caluculate the differntial given that */
-  Num diff(const Num& vv, const Num & g_vv) {
-    Num sqr = (vv - center)^2;
-    return (sqr / varience^2) * g_vv;
+  /* given Gaussian applied to the input, compute the deriviative at that point (given g(X)
+     compute g'(x) ) */
+  Num diff(const Num & g_vv) {
+    return - g_vv * sqrt( log(g_vv) ) / (sqrt(2) * Varience::value);
   }
 };
 

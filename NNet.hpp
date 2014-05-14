@@ -468,32 +468,6 @@ namespace nnet {
 		  } , net.layer
 		  , feed.next.layer);
       }};
-
-    struct PredictKeepInputs {
-      template<class Net>
-      static void apply(Net& net, typename Net::Feed& inputs, typename Net::Feed& activated) {
-	using namespace std;
-	typedef typename NumType<Net>::type Num;
-
-	static_assert( tuple_size<typename Net::NodeInput>::value == tuple_size<typename Net::Feed::Layer>::value + 1
-		       , "PredictMap feed/net dimention mismatch.");
-
-	map_array([&](typename Net::NodeInput& node, Num &active_dst, Num &input_dst) {
-		    active_dst = input_dst = 0.0;
-
-		    map_array( [&](Num &nn, Num &ff) {
-			/* map over all the non-bias inputs */
-			input_dst += nn * ff;
-		      }, node
-		      , inputs.layer);
-
-		    /* include the bias input */
-		    input_dst += node.back();
-		    active_dst = Net::Activation::apply(input_dst);
-		  } , net.layer
-		  , activated.next.layer
-		  , inputs.next.layer );
-      }};
   }
 
   template<class Net>
@@ -504,63 +478,5 @@ namespace nnet {
     return feeds;
   }
 
-  /* for use with back propigation; stores the product of inputs to each node in a seperate Feed.
-     This is needed to compute the differential of the Gaussian activation function */
-  template<class Net>
-  void predict_with_layer_input(Net& net, typename Net::Feed& input, typename Net::Feed& activated) {
-    using namespace recurrence_detail;
-    activated.layer = input.layer;
-    MapLayers<PredictKeepInputs, Net>::apply(net, input, activated);
-  }
-
-
-  /*************************************************/
-  /*     _                                    _    */
-  /*    / \  _   _  __ _ _ __ ___   ___ _ __ | |_  */
-  /*   / _ \| | | |/ _` | '_ ` _ \ / _ \ '_ \| __| */
-  /*  / ___ \ |_| | (_| | | | | | |  __/ | | | |_  */
-  /* /_/   \_\__,_|\__, |_| |_| |_|\___|_| |_|\__| */
-  /*               |___/                           */
-  /*************************************************/
-  /* add a bias value to a feed vector */
-  namespace recurrence_detail {
-    /* template<class NNs> */
-    /* struct IncrementNums<NNs, _void> : public NNs {}; */
-    template<class NNs>
-    struct IncrementNums {
-      typedef ConsNums<NNs::value + 1, typename IncrementNums<typename NNs::Next>::type > type;
-    };
-
-    template<>
-    struct IncrementNums<_void> : public _void {};
-
-    struct AugCopy {
-      template<class LL_in, class LL_out>
-      static void apply(LL_in& in, LL_out& out) {
-	typedef typename NumType<LL_in>::type Num;
-
-	map_array([](Num &in_v, Num &out_v) { out_v = in_v; }, in.layer, out.layer);
-	out.layer.back() = 1.0;
-      }};
-  }
-
-  template<class Feed>
-  struct Augment {
-    typedef FeedNet<typename recurrence_detail::IncrementNums< typename  Feed::Dimention >::type
-		    , typename Feed::Num> type;
-  
-    static type apply(Feed &input) {
-      using namespace recurrence_detail;
-      type augmented;
-      MapLayers<AugCopy, Feed, 1>::apply(input, augmented);
-      return augmented;
-    }
-
-    static void apply(Feed &src, type &dst) {
-      using namespace recurrence_detail;
-      MapLayers<AugCopy, Feed, 1>::apply(src, dst);
-    }
-  };
 }
-
 #endif

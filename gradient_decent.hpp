@@ -9,8 +9,7 @@
  */
 #include <vector>
 
-#include <boost/iterator.hpp>
-
+// #include <boost/iterator.hpp>
 #include "./NNet.hpp"
 
 namespace nnet {
@@ -23,8 +22,8 @@ namespace nnet {
   /***********************************************************/
   namespace recurrence_detail {
     struct BackPropagate {
-      template<class Net, class AugFeed>
-      static void apply(Net& net, const typename Net::Feed& layer_inputs, AugFeed &activated) {
+      template<class Net>
+      static void apply(Net& net, typename Net::Feed& activated) {
 	using namespace std;
 	typedef typename Net::Num Num;
 	typedef typename Net::Activation Activation;
@@ -32,9 +31,6 @@ namespace nnet {
 	static_assert( is_same<typename Net::tag, NNet_tag>::value
 		       , "RMap expects NNet as first argument.");
 
-	static_assert( tuple_size< typename AugFeed::Layer >::value
-		       == tuple_size<typename Net::Layer::value_type >::value
-		       , "back_propigation: network/feed mismatch" );
 
 	/* map every node with the feed[+1] layer, output to the feed[+0] layer */
 	typename Net::NodeInput sum_error{};
@@ -54,19 +50,19 @@ namespace nnet {
 	      }, activated.layer, node);
 	  }, net.layer, activated.next.layer);
 
-	activated.layer.back() = sum_error.back() * Activation::bias;
+	// activated.layer.back() = sum_error.back() * Activation::bias;
 	Map<>::apply([&](//const Num& vv,
 			 Num &g_vv, const Num err_next) {
-	    g_vv = err_next * Activation::diff(0.0, g_vv); 
+	    g_vv = err_next * Activation::diff(g_vv); 
 	  } //, layer_inputs.layer
 	  , activated.layer, sum_error);
 
       }};  }
 
-  template<class Net, class Augmented>
-  void back_propagate(Net& net, typename Net::Feed& input, Augmented &feed) {
+  template<class Net>
+  void back_propagate(Net& net, typename Net::Feed& feed) {
     using namespace recurrence_detail;
-    RMapLayers<BackPropagate, Net>::apply( net, input, feed);
+    RMapLayers<BackPropagate, Net>::apply( net, feed);
   }
 
   /********************************************/
@@ -107,22 +103,19 @@ namespace nnet {
     using namespace std;
 
     typedef typename Net::Feed Feed;
-    typedef typename Augment<Feed>::type AugmentedFeed;
+    // typedef typename Augment<Feed>::type AugmentedFeed;
     typedef typename NumType<Net>::type Num;
     Net dEdt, dEdt_cumulative{};
 
-    Feed activated, activation_input;
-    AugmentedFeed augment;
+    Feed prediction;
 
     size_t m = training_lables.size();
     double J  = 0.0;
 
     for(size_t i = 0; i < m; ++i) {
       //cout <<"Trainging Y: " << training_lables[i][0] << endl;
-      activation_input.layer = training_data[i];
-      //predict_with_layer_input(net, activation_input, activated);
-      activated.layer = training_data[i];
-      predict(net, activated);
+      prediction.layer = training_data[i];
+      predict(net, prediction);
 
 
       /* I don't need the activations of the output layer, just the error, so I should
@@ -131,16 +124,11 @@ namespace nnet {
 	  J += -y * log(h) - (1 - y) * log(1 - h);
 	  //J += y > 0.5 ? -log(h) :  -log(1 - h);
 	  h = h - y;
-	}, activated.output_layer()
+	}, prediction.output_layer()
 	, training_lables[i]);
 
-      augment = Augment<Feed>::apply( activated );
-
       dEdt = net;
-      back_propagate(dEdt, activation_input, augment);
-
-      /* cout<< "augmented activated: "; */
-      /* print_feed(augment) << endl; */
+      back_propagate(dEdt, prediction);
 
       /* accumulate the gradient for each training example */
       map_network([](Num &cume, const Num example) { cume += example;
@@ -148,8 +136,6 @@ namespace nnet {
     }
 
     J /= m;
-
-    // print_network(net, cout);
 
     /* recularize the cost */
     Num reg = 0;

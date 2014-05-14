@@ -69,9 +69,10 @@ int main() {
     train_Y[i] = ( (get<2>(D[n]) > 0.5 ? array<float,2>{{1,0}} : array<float,2>{{0,1}}) );
   }
 
-  decltype(cost_gradient(net, train_X, train_Y, 0.2)) cost;
+  const static float lambda = 0.02;
+  decltype(cost_gradient(net, train_X, train_Y, lambda)) cost;
   for(size_t i = 0; i < 1400; ++i) {
-    cost = cost_gradient(net, train_X, train_Y, 0.2);
+    cost = cost_gradient(net, train_X, train_Y, lambda);
 
     // cout << "Cost: " << get<1>(cost) << endl;
 

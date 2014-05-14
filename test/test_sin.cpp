@@ -37,7 +37,7 @@ typename Feed::Output float2label(float f) {
 float label2float(const Feed::Output& layer) {
   int i = max_element(layer.begin(), layer.end()) - layer.begin();
   cout << "Index: " << i << " yielding " << ((i * 2) / (float)num_bins) - 1 << endl;
-  return (i * 2) / num_bins - 1;
+  return (float)(i * 2) / (float)num_bins - 1;
 }
 
 
@@ -72,7 +72,7 @@ int main() {
     ofstream file("learned-sin.txt");
     for(float x = - 2 * M_PI
 	  ; x < (2 * M_PI)
-	  ; x += (M_PI / 4)) {
+	  ; x += (M_PI / 16)) {
       feed.layer[0] = x;
       // print_array(feed.output_layer()) << endl;
 
