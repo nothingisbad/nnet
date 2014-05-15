@@ -26,6 +26,7 @@ namespace nnet {
       static void apply(Net& net, typename Net::Feed& activated) {
 	using namespace std;
 	typedef typename Net::Num Num;
+	typedef typename Net::Feed::Num FeedNum;
 	typedef typename Net::Activation Activation;
 
 	static_assert( is_same<typename Net::tag, NNet_tag>::value
@@ -37,22 +38,21 @@ namespace nnet {
 
 	/* For each node, compute the per-weight error of its inputs */
 	map_array([&](decltype(net.layer.back()) &node
-		      , const Num output_error) {
+		      , const FeedNum output_error) {
 		    map_array([&](Num &error, Num &nn) {
 			error += nn * output_error;
 		      }, sum_error, node);
 		  }, net.layer
 		  , activated.next.layer);
 
-	map_array([&](typename Net::NodeInput& node, const Num delta){
-	    map_array([&](Num &activation, Num &nn) {
+	map_array([&](typename Net::NodeInput& node, const FeedNum delta){
+	    map_array([&](FeedNum &activation, Num &nn) {
 		nn = activation * delta;
 	      }, activated.layer, node);
 	  }, net.layer, activated.next.layer);
 
 	// activated.layer.back() = sum_error.back() * Activation::bias;
-	Map<>::apply([&](//const Num& vv,
-			 Num &g_vv, const Num err_next) {
+	Map<>::apply([&](FeedNum &g_vv, const Num err_next) {
 	    g_vv = err_next * Activation::diff(g_vv); 
 	  } //, layer_inputs.layer
 	  , activated.layer, sum_error);
@@ -83,7 +83,7 @@ namespace nnet {
 
     struct AverageGrad {
       template<class Net>
-      static void apply(Net &grad, Net &theta, float lambda, float m) {
+      static void apply(Net &grad, Net &theta, typename Net::Num lambda, typename Net::Num m) {
 	map_array([&](typename Net::NodeInput& grad_node, typename Net::NodeInput& theta_node) {
 	    Map<0,-1>::apply( [&](typename Net::Num &gg, typename Net::Num &tt) {
 		gg = (gg + tt * lambda) / m;
@@ -96,15 +96,16 @@ namespace nnet {
   template<class Net>
   auto cost_gradient(Net& net
 		     , const std::vector< typename Net::Feed::Layer >& training_data
-		     , const std::vector< typename Net::Output >& training_lables
-		     , float regularization_constant
+		     , const std::vector< typename Net::Feed::Output >& training_lables
+		     , typename Net::Num regularization_constant
 		     ) -> std::tuple<Net, typename NumType<Net>::type> {
     using namespace recurrence_detail;
     using namespace std;
 
     typedef typename Net::Feed Feed;
-    // typedef typename Augment<Feed>::type AugmentedFeed;
     typedef typename NumType<Net>::type Num;
+    typedef typename Feed::Num FeedNum;
+
     Net dEdt, dEdt_cumulative{};
 
     Feed prediction;
@@ -120,10 +121,11 @@ namespace nnet {
 
       /* I don't need the activations of the output layer, just the error, so I should
 	 be OK storing that in the output of the forward feed. */
-      map_array([&](Num &h, const Num y) {
-	  J += -y * log(h) - (1 - y) * log(1 - h);
+      map_array([&](FeedNum &fh, const Num y) {
+	  Num h = (Num)fh;
+	  J += -y * log( h ) - (1 - y) * log(1 - h);
 	  //J += y > 0.5 ? -log(h) :  -log(1 - h);
-	  h = h - y;
+	  (Num&)fh = h - y;
 	}, prediction.output_layer()
 	, training_lables[i]);
 
@@ -160,11 +162,12 @@ namespace nnet {
   /****************************/
   template<class Net>
   void train(Net& net, const std::vector< typename Net::Feed::Layer >& training_data
-	     , const std::vector< typename Net::Output >& training_lables
-	     , float regularization_constant) {
+	     , const std::vector< typename Net::Feed::Output >& training_lables
+	     , typename Net::Num regularization_constant) {
+    typedef typename Net::Num Num;
     auto grad = cost_gradient(net, training_data, training_lables, regularization_constant);
 
-    map_network([](float &nn, float &grad) {
+    map_network([](Num &nn, Num &grad) {
 	nn -= grad;
       }, net
       , std::get<0>(grad));
@@ -181,7 +184,7 @@ namespace nnet {
   typename NumType<Net>::type
   cost(Net& net
        , const std::vector< typename Net::Feed::Layer >& training_data
-       , const std::vector< typename Net::Output >& training_lables
+       , const std::vector< typename Net::Feed::Output >& training_lables
        , typename Net::Num regularization_constant) {
     using namespace recurrence_detail;
     using namespace std;

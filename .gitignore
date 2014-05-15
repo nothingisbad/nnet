@@ -7,8 +7,8 @@ test_NNet
 test_GD
 test/make_sin
 test/make_xor
+test/test_sin
 test/*.txt
-test/test_regression
 test/test_save
 
 \*scheme\*

@@ -28,7 +28,6 @@ namespace nnet {
 
   struct TagBase {};
 
-
   /****************************************/
   /*  _____             _ _   _      _    */
   /* |  ___|__  ___  __| | \ | | ___| |_  */
@@ -56,6 +55,9 @@ namespace nnet {
     typedef FeedNet<NN, Numeric> type;
     typedef typename FeedNet< typename NN::Next, Numeric >::type Next;
     typedef std::array<Num, NN::value> Layer;
+
+    template<class NewReal>
+    struct change_value_type { typedef FeedNet<NN, NewReal> type; };
 
     typedef NN Dimention;
     const static size_t depth = NN::depth;
@@ -112,7 +114,9 @@ namespace nnet {
   public:
     typedef Numeric Num;
     typedef NNet<NN, Numeric, InputActivation> type;
-    typedef FeedNet<NN, Numeric> Feed;
+    typedef typename ActivationFeed< InputActivation, FeedNet<NN, Numeric>
+				     >::type Feed;
+
     typedef typename NNet<typename NN::Next, Numeric, InputActivation>::type Next;
 
     typedef InputActivation Activation;
@@ -121,14 +125,14 @@ namespace nnet {
     typedef std::array<Num, NN::value + 1> NodeInput;
 
     typedef typename std::conditional< IsVoid<Next>::value
-				       , Identity< std::array<Num, NN::value> >
+				       , Identity< typename Feed::Layer > 
 				       , GetInput<Next>
 				       >::type::type LayerOutput;
 
-    typedef typename std::conditional< IsVoid<Next>::value
-				       , Identity< Identity< LayerOutput > >
-				       , std::enable_if<!IsVoid<Next>::value, GetOutput<Next> >
-				       >::type::type::type Output;
+    /* typedef typename std::conditional< IsVoid<Next>::value */
+    /* 				       , Identity< Identity< LayerOutput > > */
+    /* 				       , std::enable_if<!IsVoid<Next>::value, GetOutput<Next> > */
+    /* 				       >::type::type::type Output; */
 
     typedef std::array<NodeInput, std::tuple_size< LayerOutput >::value > Layer;
 
@@ -136,7 +140,7 @@ namespace nnet {
     static const size_t depth = NN::depth;
     /* size of the input (not counting the bias) */
     static const size_t input_size = NN::value;
-    static const size_t output_size = std::tuple_size<Output>::value;
+    static const size_t output_size = std::tuple_size<typename Feed::Output>::value;
 
     Next next;
     Layer layer;
@@ -451,16 +455,17 @@ namespace nnet {
       static void apply(Net& net, typename Net::Feed& feed) {
 	using namespace std;
 	typedef typename NumType<Net>::type Num;
+	typedef typename Net::Feed::Num FeedNum;
 
 	static_assert( tuple_size<typename Net::NodeInput>::value == tuple_size<typename Net::Feed::Layer>::value + 1
 		       , "PredictMap feed/net dimention mismatch.");
 
 	map_array([&](typename Net::NodeInput& node
-		      , Num &dst) {
-		    dst = 0.0;
-		    map_array( [&dst](Num &nn, Num &ff) {
+		      , FeedNum &dst) {
+		    (Num&)dst = 0.0;
+		    map_array( [&dst](Num &nn, FeedNum &ff) {
 			/* map over all the non-bias inputs */
-			dst += nn * ff;
+			(Num&)dst += nn * ff;
 		      }, node
 		      , feed.layer);
 		    /* include the bias input */

@@ -11,6 +11,9 @@ $(TARGETS) : % : %.cpp ../*.hpp
 noisy-sin.txt: make_sin
 	./make_sin
 
+learned-sin.txt: test_sin noisy-sin.txt
+	./test_sin
+
 CLEAN_TARGETS = $(TARGETS) noisy-sin.txt noisy-sine.txt
 clean:
 	@for item in $(TARGETS); do { if [ -e $${item} ]; then rm $${item} ; echo -n "cleaning up "; echo $${item} ; fi }; done

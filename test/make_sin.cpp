@@ -33,9 +33,9 @@ int main() {
 
   fstream out1, out2;
 
-  out1.open("noisy-sine.txt", std::fstream::out);
+  out1.open("noisy-sin.txt", std::fstream::out);
 
-  make_dist(150, gen
+  make_dist(301, gen
 	    , uniform_real_distribution<>(-2 * M_PI, 2 * M_PI), normal_distribution<>(-0.1,0.1)
 	    , out1);
   return 0;
